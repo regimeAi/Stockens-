@@ -55,6 +55,7 @@ export interface StoreShape {
   playbooks: Playbook[];
   pushSubs: unknown[];
   vapid?: { publicKey: string; privateKey: string };
+  sessionSecret?: string;
 }
 
 export const DEFAULT_PROFILE: Profile = {

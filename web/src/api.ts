@@ -7,6 +7,8 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
     headers: opts.body ? { "content-type": "application/json" } : undefined,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  // Session expired or password changed: reload so the app shows the login screen.
+  if (res.status === 401 && !path.startsWith("/login")) location.reload();
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
   return res.json();
 }

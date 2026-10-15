@@ -13,8 +13,12 @@ import { SCENARIOS, portfolioView, runScenario, sizePosition, stops } from "./en
 import { atr, uid } from "./engine/indicators.ts";
 import { initPush, sendPush, vapidPublicKey } from "./push.ts";
 import type { AlertRule, StrategyConfig, Watchlist } from "./types.ts";
+import { authEnabled, authRoutes, isAuthed, requireAuth } from "./auth.ts";
 
 const app = express();
+// Behind a hosting proxy (Render, Fly, etc.) so req.secure / req.ip reflect the real client.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
 const crypto = new LatencyEngine();
@@ -24,7 +28,8 @@ initPush();
 
 // ---------------- realtime ----------------
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+// The live socket carries the same data as the API, so it needs a valid session too.
+const wss = new WebSocketServer({ server, path: "/ws", verifyClient: ({ req }: { req: http.IncomingMessage }) => isAuthed(req) });
 const clients = new Set<WebSocket>();
 wss.on("connection", (ws) => {
   clients.add(ws);
@@ -49,6 +54,9 @@ store.listeners.add((key) => {
 
 // ---------------- API ----------------
 const api = express.Router();
+api.get("/health", (_req, res) => res.json({ ok: true }));
+authRoutes(api);
+api.use(requireAuth);
 const ready = (_req: express.Request, res: express.Response, next: express.NextFunction) => (agent.forecasts.size ? next() : res.status(503).json({ error: "Agent is warming up", status: agent.status }));
 
 api.get("/bootstrap", (_req, res) => {
@@ -219,6 +227,7 @@ if (fs.existsSync(dist)) {
   app.get(/^(?!\/api|\/ws).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 
+if (!authEnabled()) console.warn("APP_PASSWORD is not set: the app is open to anyone who can reach it. Set it before hosting online.");
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`Stockens server on http://localhost:${config.port}  (LIVE_DATA=${config.liveData})`);
 });

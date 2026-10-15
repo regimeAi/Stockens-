@@ -73,6 +73,11 @@ export const config = {
     maxOrdersPerSec: num("BOT_MAX_ORDERS_PER_SEC", 5),
     evalHz: num("BOT_EVAL_HZ", 20),
   },
+  auth: {
+    // Set this to put the app behind a password (required when hosting online).
+    password: env("APP_PASSWORD"),
+    sessionSecret: env("SESSION_SECRET"),
+  },
   push: {
     subject: env("VAPID_SUBJECT", "mailto:you@example.com"),
     publicKey: env("VAPID_PUBLIC_KEY"),
