@@ -1,0 +1,23 @@
+# One-click hosting on Render (https://render.com): New → Blueprint → pick this repo.
+# Render asks you for APP_PASSWORD when you create it; that's the password for the app.
+services:
+  - type: web
+    name: stockens
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npx tsx server/index.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      # Render's servers are in the US, where binance.com blocks connections; Binance.US
+      # serves the same market-data API.
+      - key: BINANCE_WS
+        value: wss://stream.binance.us:9443/stream
+      - key: BINANCE_REST
+        value: https://api.binance.us

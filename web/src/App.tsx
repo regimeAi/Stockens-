@@ -9,6 +9,7 @@ import { StrategyLab } from "./pages/StrategyLab";
 import { Risk } from "./pages/Risk";
 import { Crypto, type CryptoMsg } from "./pages/Crypto";
 import { Profile } from "./pages/Profile";
+import { Login } from "./pages/Login";
 
 const TABS = [
   { id: "home", label: "Home", icon: Icon.home, title: "Today" },
@@ -33,9 +34,13 @@ export function App() {
   const [toastMsg, setToast] = useState<string>();
   const [crypto, setCrypto] = useState<CryptoMsg>();
   const [err, setErr] = useState<string>();
+  const [needLogin, setNeedLogin] = useState(false);
 
   useEffect(() => {
-    const load = () => api<Boot>("/bootstrap").then(setBootState).catch((e) => (setErr(e.message), setTimeout(load, 3000)));
+    const load = () =>
+      api<{ authRequired: boolean; authed: boolean }>("/session")
+        .then((s) => (s.authRequired && !s.authed ? setNeedLogin(true) : api<Boot>("/bootstrap").then(setBootState)))
+        .catch((e) => (setErr(e.message), setTimeout(load, 3000)));
     load();
     const h = () => setRoute(readHash());
     window.addEventListener("hashchange", h);
@@ -67,6 +72,7 @@ export function App() {
     root.style.setProperty("--accent", boot.profile.accent);
   }, [boot?.profile.theme, boot?.profile.accent]);
 
+  if (needLogin) return <Login />;
   if (!boot)
     return (
       <div className="empty" style={{ paddingTop: 120 }}>

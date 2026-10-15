@@ -98,6 +98,7 @@ export function Profile() {
               <a className="btn sm" href="/api/export/signals.csv">Download signals CSV</a>
             </div>
             <div className="tiny muted" style={{ marginTop: 10 }}>Synced {ago(p.updatedAt)} ago across your devices.</div>
+            <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => api("/logout", { method: "POST" }).then(() => location.reload())}>Log out of this device</button>
           </div>
         </div>
       )}

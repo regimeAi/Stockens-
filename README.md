@@ -25,6 +25,26 @@ npm start                   # builds the PWA and serves everything on http://loc
 - **Terminal BTC bot:** `npm run bot` runs locally with no cloud and no GPU.
 - **Checks:** `npm test` (engine unit tests) and `npm run typecheck`.
 
+## Put it online (open it from Safari anywhere)
+
+The app has a password login: set `APP_PASSWORD` and every page, API call and live
+connection requires that password. Logins last 30 days per device. Without `APP_PASSWORD` the
+app is open to anyone who can reach it, so only skip it on your own computer.
+
+To host it free on [Render](https://render.com):
+
+1. Sign up at render.com with your GitHub account and allow it to see the `Stockens-` repo.
+2. Choose **New → Blueprint**, pick this repo and tap **Deploy**. Render reads `render.yaml`.
+3. When it asks for **APP_PASSWORD**, type the password you want for the app.
+4. Wait for the first deploy to finish (a few minutes). Open the `https://stockens-….onrender.com`
+   link in Safari on your iPhone, log in, then tap **Share → Add to Home Screen**.
+
+On the free plan the app sleeps after about 15 minutes without visits. The next visit takes
+up to a minute to wake it, and the background agent only runs while it's awake. Saved settings
+(profile, watchlists, alerts) reset whenever Render restarts or redeploys the app, because the
+free plan has no persistent disk. A paid plan with a disk mounted at `DATA_DIR` keeps them.
+To add data keys later, go to the service's **Environment** tab in Render.
+
 Every data source fails soft. Anything you haven't connected is replaced by the simulator,
 and the app labels it **simulated** under **Me → Data & agent** and in each forecast's
 integrity checks, so you always know what is real.
