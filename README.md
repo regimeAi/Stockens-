@@ -63,11 +63,26 @@ the shared BTC paper bot's limits.
 5. Open your link in Safari, **create an account with your admin email** (it unlocks without
    paying), then tap **Share → Add to Home Screen**. Share the link with buyers.
 
+### Password-reset emails
+
+With email set up, the login screen shows **Forgot password?** People enter their email, get
+a link that works once and expires after 1 hour, and choose a new password. That logs out
+their other devices.
+
+1. Sign up at [brevo.com](https://www.brevo.com) (free, 300 emails a day).
+2. Go to **Senders, Domains & Dedicated IPs → Senders → Add a sender**, enter the address
+   emails should come from (your Gmail is fine), and click the verification link Brevo emails you.
+3. Go to **SMTP & API → API keys → Generate a new API key** and copy it.
+4. In Render, open **stockens → Environment** and set `BREVO_API_KEY` to the key and
+   `EMAIL_FROM` to that sender address, then save.
+
+Without a custom domain, some reset emails may land in spam, so the app tells people to check
+there. Resend (`RESEND_API_KEY`) also works if you own a domain. Without either one, the
+"Forgot password?" link stays hidden.
+
 ### Good to know
 
 - **Stripe fees:** about 2.9% + 30¢ per payment, so a $1.99 sale nets roughly $1.63 (US cards).
-- **Password reset:** there's no "forgot password" email flow yet. Signed-in users can change their
-  password under Me → Profile.
 - **Free plan sleep:** the app sleeps after about 15 minutes idle (the first visit then takes up to a
   minute), and the background agent only runs while it's awake. A paid Render plan keeps it awake.
 - **App Store:** selling through Stripe is fine for a website or Home-Screen web app. If you later

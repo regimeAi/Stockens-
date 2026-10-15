@@ -9,6 +9,7 @@ export interface SessionInfo {
   admin: boolean;
   paid: boolean;
   price: { cents: number; currency: string };
+  resetAvailable: boolean;
 }
 
 export const formatPrice = (p: SessionInfo["price"]) => new Intl.NumberFormat(undefined, { style: "currency", currency: p.currency.toUpperCase() }).format(p.cents / 100);
@@ -26,7 +27,8 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export function Login({ session }: { session: SessionInfo }) {
-  const [mode, setMode] = useState<"signup" | "login">("signup");
+  const [mode, setMode] = useState<"signup" | "login" | "forgot">("signup");
+  const [sent, setSent] = useState<string>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string>();
@@ -36,6 +38,12 @@ export function Login({ session }: { session: SessionInfo }) {
     setBusy(true);
     setErr(undefined);
     try {
+      if (mode === "forgot") {
+        const r = await api<{ message: string }>("/password/forgot", { method: "POST", body: { email } });
+        setSent(r.message);
+        setBusy(false);
+        return;
+      }
       await api(`/${mode}`, { method: "POST", body: { email, password } });
       location.reload();
     } catch (x) {
@@ -46,7 +54,9 @@ export function Login({ session }: { session: SessionInfo }) {
   return (
     <Shell>
       <p className="small ink2" style={{ marginTop: 0 }}>
-        {mode === "signup"
+        {mode === "forgot"
+          ? "Enter your account email and we'll send you a link to set a new password."
+          : mode === "signup"
           ? session.mode === "paid"
             ? `Explainable stock & crypto forecasts. ${formatPrice(session.price)} one-time — no subscription.`
             : "Create your account."
@@ -58,7 +68,7 @@ export function Login({ session }: { session: SessionInfo }) {
       </div>
       <form onSubmit={submit} style={{ textAlign: "left" }}>
         <input className="field" type="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="none" />
-        <input
+        {mode !== "forgot" && <input
           className="field"
           style={{ marginTop: 8 }}
           type="password"
@@ -66,12 +76,23 @@ export function Login({ session }: { session: SessionInfo }) {
           placeholder={mode === "signup" ? "Password (8+ characters)" : "Password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-        />
+        />}
         {err && <div className="small down" style={{ marginTop: 8 }}>{err}</div>}
-        <button className="btn primary" style={{ width: "100%", marginTop: 12 }} disabled={!email || !password || busy}>
-          {busy ? "One moment…" : mode === "signup" ? "Create account" : "Log in"}
+        {sent && <div className="small status-good" style={{ marginTop: 8 }}>{sent}</div>}
+        <button className="btn primary" style={{ width: "100%", marginTop: 12 }} disabled={!email || (mode !== "forgot" && !password) || busy}>
+          {busy ? "One moment…" : mode === "signup" ? "Create account" : mode === "login" ? "Log in" : "Email me a reset link"}
         </button>
       </form>
+      {mode === "login" && session.resetAvailable && (
+        <button type="button" className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => (setMode("forgot"), setErr(undefined), setSent(undefined))}>
+          Forgot password?
+        </button>
+      )}
+      {mode === "forgot" && (
+        <button type="button" className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => (setMode("login"), setErr(undefined), setSent(undefined))}>
+          Back to log in
+        </button>
+      )}
       <p className="tiny muted" style={{ marginTop: 14 }}>Analytics and education only — not financial advice.</p>
     </Shell>
   );
@@ -119,6 +140,41 @@ export function Paywall({ session }: { session: SessionInfo }) {
       </button>
       <div className="tiny muted" style={{ marginTop: 8 }}>Secure payment by Stripe. Apple Pay and cards accepted.</div>
       <button className="btn ghost sm" style={{ marginTop: 12 }} onClick={logout}>Log out</button>
+    </Shell>
+  );
+}
+
+// Landing page for the emailed link: /?reset=<token>
+export function ResetPassword({ token }: { token: string }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) return setErr("Passwords don't match.");
+    setBusy(true);
+    setErr(undefined);
+    try {
+      await api("/password/reset", { method: "POST", body: { token, password } });
+      location.replace("/");
+    } catch (x) {
+      setErr((x as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Shell>
+      <p className="small ink2" style={{ marginTop: 0 }}>Choose a new password. You'll be logged in, and other devices will be logged out.</p>
+      <form onSubmit={submit} style={{ textAlign: "left" }}>
+        <input className="field" type="password" autoComplete="new-password" placeholder="New password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="field" style={{ marginTop: 8 }} type="password" autoComplete="new-password" placeholder="Repeat new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        {err && <div className="small down" style={{ marginTop: 8 }}>{err}</div>}
+        <button className="btn primary" style={{ width: "100%", marginTop: 12 }} disabled={password.length < 8 || !confirm || busy}>
+          {busy ? "Saving…" : "Set new password"}
+        </button>
+      </form>
+      <a className="btn ghost sm" style={{ marginTop: 10 }} href="/">Back to log in</a>
     </Shell>
   );
 }

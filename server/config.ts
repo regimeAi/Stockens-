@@ -81,6 +81,16 @@ export const config = {
     // Comma-separated emails that get full access without paying (you, the owner).
     adminEmails: env("ADMIN_EMAILS").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean),
   },
+  // Public address of the app, used in emailed links. Render sets RENDER_EXTERNAL_URL itself.
+  publicUrl: env("PUBLIC_URL", env("RENDER_EXTERNAL_URL")).replace(/\/$/, ""),
+  // Password-reset emails (see server/mailer.ts).
+  mail: {
+    brevoKey: env("BREVO_API_KEY"),
+    resendKey: env("RESEND_API_KEY"),
+    from: env("EMAIL_FROM"),
+    fromName: env("EMAIL_FROM_NAME", "Stockens"),
+    brevoBase: env("BREVO_API_BASE", "https://api.brevo.com"), // override only for tests
+  },
   // One-time purchase through Stripe Checkout. Without STRIPE_SECRET_KEY nobody can buy,
   // and (unless ADMIN_EMAILS is set) the app runs in open single-user mode for local use.
   stripe: {

@@ -9,7 +9,7 @@ import { StrategyLab } from "./pages/StrategyLab";
 import { Risk } from "./pages/Risk";
 import { Crypto, type CryptoMsg } from "./pages/Crypto";
 import { Profile } from "./pages/Profile";
-import { Login, Paywall, type SessionInfo } from "./pages/Login";
+import { Login, Paywall, ResetPassword, type SessionInfo } from "./pages/Login";
 
 const TABS = [
   { id: "home", label: "Home", icon: Icon.home, title: "Today" },
@@ -90,6 +90,8 @@ export function App() {
     root.style.setProperty("--accent", boot.profile.accent);
   }, [boot?.profile.theme, boot?.profile.accent]);
 
+  const resetToken = new URLSearchParams(location.search).get("reset");
+  if (resetToken) return <ResetPassword token={resetToken} />;
   if (gate) return gate.authed ? <Paywall session={gate} /> : <Login session={gate} />;
   if (!boot)
     return (
