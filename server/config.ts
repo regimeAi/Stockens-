@@ -73,10 +73,23 @@ export const config = {
     maxOrdersPerSec: num("BOT_MAX_ORDERS_PER_SEC", 5),
     evalHz: num("BOT_EVAL_HZ", 20),
   },
+  // Postgres connection string. Required on hosts without a persistent disk (e.g. Render's
+  // free plan), otherwise accounts and purchases are lost when the server restarts.
+  databaseUrl: env("DATABASE_URL"),
   auth: {
-    // Set this to put the app behind a password (required when hosting online).
-    password: env("APP_PASSWORD"),
     sessionSecret: env("SESSION_SECRET"),
+    // Comma-separated emails that get full access without paying (you, the owner).
+    adminEmails: env("ADMIN_EMAILS").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean),
+  },
+  // One-time purchase through Stripe Checkout. Without STRIPE_SECRET_KEY nobody can buy,
+  // and (unless ADMIN_EMAILS is set) the app runs in open single-user mode for local use.
+  stripe: {
+    secretKey: env("STRIPE_SECRET_KEY"),
+    webhookSecret: env("STRIPE_WEBHOOK_SECRET"),
+    priceCents: num("PRICE_CENTS", 199),
+    currency: env("PRICE_CURRENCY", "usd"),
+    productName: env("PRODUCT_NAME", "Stockens lifetime access"),
+    apiBase: env("STRIPE_API_BASE", "https://api.stripe.com"), // override only for tests
   },
   push: {
     subject: env("VAPID_SUBJECT", "mailto:you@example.com"),

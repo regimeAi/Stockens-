@@ -7,8 +7,8 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
     headers: opts.body ? { "content-type": "application/json" } : undefined,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  // Session expired or password changed: reload so the app shows the login screen.
-  if (res.status === 401 && !path.startsWith("/login")) location.reload();
+  // Session expired, password changed or access missing: reload into the login/unlock screen.
+  if ((res.status === 401 || res.status === 402) && !["/login", "/signup", "/password", "/checkout"].some((p) => path.startsWith(p))) location.reload();
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
   return res.json();
 }
@@ -31,6 +31,7 @@ export interface Boot {
   maxParams: number;
   scenarios: { id: string; name: string }[];
   vapidPublicKey: string;
+  account: { email?: string; admin: boolean; mode: "paid" | "admin" | "open" };
   agentStatus: string;
 }
 

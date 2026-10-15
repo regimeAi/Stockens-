@@ -9,7 +9,8 @@ type Cfg = Record<string, number>;
 export type CryptoMsg = { state: LatencyState; graph: ConvergenceSnapshot };
 
 export function Crypto({ live }: { live?: CryptoMsg }) {
-  const { toast } = useApp();
+  const { toast, boot } = useApp();
+  const canEdit = boot.account.admin;
   const [init, setInit] = useState<CryptoMsg & { config: Cfg; klines: Bar[] }>();
   const [cfg, setCfg] = useState<Cfg>();
   useEffect(() => {
@@ -93,11 +94,15 @@ export function Crypto({ live }: { live?: CryptoMsg }) {
           ).map(([k, l]) => (
             <div key={k}>
               <label className="lbl">{l}</label>
-              <input className="field" inputMode="decimal" value={cfg[k]} onChange={(e) => setCfg({ ...cfg, [k]: Number(e.target.value) })} />
+              <input className="field" inputMode="decimal" value={cfg[k]} disabled={!canEdit} onChange={(e) => setCfg({ ...cfg, [k]: Number(e.target.value) })} />
             </div>
           ))}
         </div>
-        <button className="btn primary" style={{ marginTop: 10, width: "100%" }} onClick={saveCfg}>Apply limits</button>
+        {canEdit ? (
+          <button className="btn primary" style={{ marginTop: 10, width: "100%" }} onClick={saveCfg}>Apply limits</button>
+        ) : (
+          <div className="tiny muted" style={{ marginTop: 8 }}>The paper bot is shared by everyone, so only the owner can change its limits.</div>
+        )}
         <h2 style={{ marginTop: 14 }}>Skip reasons</h2>
         {Object.entries(s.skips).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
           <div key={k} className="row small"><span>{k}</span><span className="spacer" /><span className="num muted">{v.toLocaleString()}</span></div>

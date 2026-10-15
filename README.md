@@ -25,25 +25,55 @@ npm start                   # builds the PWA and serves everything on http://loc
 - **Terminal BTC bot:** `npm run bot` runs locally with no cloud and no GPU.
 - **Checks:** `npm test` (engine unit tests) and `npm run typecheck`.
 
-## Put it online (open it from Safari anywhere)
+## Selling it for $1.99 (online, with accounts)
 
-The app has a password login: set `APP_PASSWORD` and every page, API call and live
-connection requires that password. Logins last 30 days per device. Without `APP_PASSWORD` the
-app is open to anyone who can reach it, so only skip it on your own computer.
+When it's hosted, each buyer creates their own account (email + password), pays **$1.99 once**
+through **Stripe Checkout** (cards and Apple Pay) and gets lifetime access. Each account has
+its own profile, watchlists, alerts, positions and push notifications. Emails listed in
+`ADMIN_EMAILS` (you) get full access without paying and are the only accounts that can change
+the shared BTC paper bot's limits.
 
-To host it free on [Render](https://render.com):
+| Mode | When | Behavior |
+|---|---|---|
+| Paid | `STRIPE_SECRET_KEY` set | Anyone can sign up; the app unlocks after the $1.99 purchase. |
+| Owner only | only `ADMIN_EMAILS` set | Only admin emails can use it. |
+| Open | neither set | No login, single local user. For your own computer only. |
 
-1. Sign up at render.com with your GitHub account and allow it to see the `Stockens-` repo.
-2. Choose **New → Blueprint**, pick this repo and tap **Deploy**. Render reads `render.yaml`.
-3. When it asks for **APP_PASSWORD**, type the password you want for the app.
-4. Wait for the first deploy to finish (a few minutes). Open the `https://stockens-….onrender.com`
-   link in Safari on your iPhone, log in, then tap **Share → Add to Home Screen**.
+### Step by step
 
-On the free plan the app sleeps after about 15 minutes without visits. The next visit takes
-up to a minute to wake it, and the background agent only runs while it's awake. Saved settings
-(profile, watchlists, alerts) reset whenever Render restarts or redeploys the app, because the
-free plan has no persistent disk. A paid plan with a disk mounted at `DATA_DIR` keeps them.
-To add data keys later, go to the service's **Environment** tab in Render.
+1. **Database (free, about 3 minutes).** Create a free Postgres database at [neon.tech](https://neon.tech)
+   and copy its connection string (`postgresql://…`). Render's free plan has no disk, so without a
+   database every account and purchase disappears whenever the app restarts.
+2. **Stripe.** Create an account at [stripe.com](https://stripe.com) and finish activating it, so it
+   can accept real payments and pay you out. In **Developers → API keys**, copy the **Secret key**
+   (`sk_live_…`; use `sk_test_…` first if you want to test with Stripe's test card 4242 4242 4242 4242).
+3. **Render.** Go to [render.com](https://render.com), choose **New → Blueprint**, pick this repo, and fill
+   in:
+   - `DATABASE_URL`: the Neon string from step 1
+   - `ADMIN_EMAILS`: your email
+   - `STRIPE_SECRET_KEY`: the key from step 2
+   - `STRIPE_WEBHOOK_SECRET`: leave it blank for now
+
+   Deploy, and note your app link (`https://stockens-….onrender.com`).
+4. **Stripe webhook** (makes sure purchases unlock even if the buyer closes the tab early). In
+   Stripe, open **Developers → Webhooks → Add endpoint**:
+   - URL: `https://<your-app>.onrender.com/api/stripe/webhook`
+   - Events: `checkout.session.completed` and `checkout.session.async_payment_succeeded`
+   - Copy the **Signing secret** (`whsec_…`) into Render's `STRIPE_WEBHOOK_SECRET`.
+5. Open your link in Safari, **create an account with your admin email** (it unlocks without
+   paying), then tap **Share → Add to Home Screen**. Share the link with buyers.
+
+### Good to know
+
+- **Stripe fees:** about 2.9% + 30¢ per payment, so a $1.99 sale nets roughly $1.63 (US cards).
+- **Password reset:** there's no "forgot password" email flow yet. Signed-in users can change their
+  password under Me → Profile.
+- **Free plan sleep:** the app sleeps after about 15 minutes idle (the first visit then takes up to a
+  minute), and the background agent only runs while it's awake. A paid Render plan keeps it awake.
+- **App Store:** selling through Stripe is fine for a website or Home-Screen web app. If you later
+  wrap it as a native App Store app, Apple requires its own in-app purchase system instead.
+- **Your obligations:** you're selling a market-analytics product, so publish terms, a refund policy
+  and the "not financial advice" disclaimer. Check the rules where you live.
 
 Every data source fails soft. Anything you haven't connected is replaced by the simulator,
 and the app labels it **simulated** under **Me → Data & agent** and in each forecast's

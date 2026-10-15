@@ -56,7 +56,7 @@ export function Watchlists() {
           <div className="chips">
             {boot.watchlists.map((w) => (
               <button key={w.id} className={`chip ${w.id === active ? "on" : ""}`} onClick={() => setActive(w.id)}>
-                {w.name} {w.shared ? "· shared" : ""}
+                {w.name}
               </button>
             ))}
             <button className="chip" onClick={create}>＋ New</button>
@@ -69,11 +69,7 @@ export function Watchlists() {
               </h2>
               <AddSymbol onAdd={(s) => save(wl.id, { symbols: Array.from(new Set([...wl.symbols, s])) })} />
               <RowList rows={(rows ?? []).filter((r) => wl.symbols.includes(r.symbol))} onOpen={openTicker} onRemove={(s) => save(wl.id, { symbols: wl.symbols.filter((x) => x !== s) })} />
-              <div className="row wrap" style={{ marginTop: 10 }}>
-                <label className="switch small" style={{ flex: 1 }}>
-                  Share with team
-                  <input type="checkbox" checked={wl.shared} onChange={(e) => save(wl.id, { shared: e.target.checked })} />
-                </label>
+              <div className="row wrap" style={{ marginTop: 10, justifyContent: "flex-end" }}>
                 <button className="btn sm ghost" onClick={() => remove(wl.id)}>Delete list</button>
               </div>
             </div>
@@ -218,7 +214,7 @@ function Ideas({ toast }: { toast: (m: string) => void }) {
         </div>
       </div>
       <div className="card span-6">
-        <h2>Team ideas <span className="sub">{boot.ideas.length}</span></h2>
+        <h2>Your ideas <span className="sub">{boot.ideas.length}</span></h2>
         {!boot.ideas.length && <div className="empty">No ideas yet.</div>}
         {boot.ideas.map((i) => (
           <div key={i.id} className="feed-item small" onClick={() => openTicker(i.symbol)} style={{ cursor: "pointer" }}>
