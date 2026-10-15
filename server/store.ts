@@ -168,6 +168,22 @@ class FileKV implements KV {
   }
 }
 
+// Catch the usual copy-paste mistakes before trying to connect, with a message that says what to fix.
+export function databaseUrlProblem(url: string): string | undefined {
+  if (url.includes("…") || url.includes("..."))
+    return "it contains \"…\", so it was cut short when copied. In Neon use the Copy snippet button instead of selecting the text";
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return "it isn't a valid connection string. It should start with postgresql://";
+  }
+  if (!/^postgres(ql)?:$/.test(u.protocol)) return `it starts with "${u.protocol}" but should start with postgresql://`;
+  if (!u.hostname.includes(".")) return `the host "${u.hostname}" is incomplete`;
+  if (!u.password) return "it has no password. In Neon, turn on Show password before copying";
+  return undefined;
+}
+
 class PgKV implements KV {
   private pool: pg.Pool;
   private pending = new Map<string, unknown>();
@@ -219,7 +235,23 @@ class Store {
   listeners = new Set<(uid: string, key: UserKey) => void>();
 
   async init() {
-    for (const [k, v] of await this.kv.loadAll()) {
+    if (config.databaseUrl) {
+      const problem = databaseUrlProblem(config.databaseUrl);
+      if (problem) throw new Error(`DATABASE_URL is set, but ${problem}. Fix it in your host's environment settings and redeploy.`);
+    }
+    let rows: [string, unknown][];
+    try {
+      rows = await this.kv.loadAll();
+    } catch (e) {
+      const msg = (e as Error).message;
+      const hint = /password authentication failed/i.test(msg)
+        ? "The database password is wrong. If you reset it in Neon, copy the new connection string into DATABASE_URL."
+        : /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(msg)
+          ? "The database host name couldn't be found. Re-copy the full connection string."
+          : "Check DATABASE_URL and that the database is running.";
+      throw new Error(`Couldn't connect to the database (${msg}). ${hint}`);
+    }
+    for (const [k, v] of rows) {
       if (k === "global") this.global = Object.assign({ ledger: [], reviews: [] }, v as GlobalData);
       else if (k.startsWith("account:")) {
         const a = v as Account;
