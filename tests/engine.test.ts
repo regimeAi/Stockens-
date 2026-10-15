@@ -146,3 +146,19 @@ describe("crypto convergence graph", () => {
     expect(normCdf(1.2816)).toBeCloseTo(0.9, 3);
   });
 });
+
+describe("stripe webhook signatures", async () => {
+  const crypto = await import("node:crypto");
+  const { config } = await import("../server/config.ts");
+  const { verifyWebhook } = await import("../server/stripe.ts");
+  it("accepts a valid signature and rejects tampering or stale timestamps", () => {
+    config.stripe.webhookSecret = "whsec_test";
+    const body = JSON.stringify({ type: "checkout.session.completed" });
+    const t = Math.floor(Date.now() / 1000);
+    const sig = (ts: number, b: string) => crypto.createHmac("sha256", "whsec_test").update(`${ts}.${b}`).digest("hex");
+    expect(verifyWebhook(body, `t=${t},v1=${sig(t, body)}`)).toBe(true);
+    expect(verifyWebhook(body + " ", `t=${t},v1=${sig(t, body)}`)).toBe(false);
+    expect(verifyWebhook(body, `t=${t - 600},v1=${sig(t - 600, body)}`)).toBe(false);
+    expect(verifyWebhook(body, undefined)).toBe(false);
+  });
+});

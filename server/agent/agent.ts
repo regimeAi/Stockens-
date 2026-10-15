@@ -12,7 +12,7 @@ import { type SignalRuleStats, toSignal } from "../engine/signals.ts";
 import { DEFAULT_RISK, TEMPLATES, backtest } from "../engine/backtest.ts";
 import { psychologyGauge } from "../engine/psychology.ts";
 import { sma, uid } from "../engine/indicators.ts";
-import { store, type Review } from "../store.ts";
+import { DEFAULT_PLAYBOOKS, DEFAULT_PROFILE, store, type Review } from "../store.ts";
 import type { LatencyEngine } from "../crypto/latencyArb.ts";
 
 // The background agent. It has no UI of its own: it quietly pulls from Finviz,
@@ -198,7 +198,9 @@ export class Agent extends EventEmitter {
       if (this.lastRegimeLabel) this.push({ kind: "regime", title: `Regime shift: ${eqRegime.label}`, body: `Ensemble re-weighted → trees ${eqRegime.weights.gbt}, sequence ${eqRegime.weights.sequence}, trend ${eqRegime.weights.trend}, reversion ${eqRegime.weights.reversion}.` });
       this.lastRegimeLabel = eqRegime.label;
     }
-    const profile = store.data.profile;
+    // Feed signals use a fixed "house" profile; each user's own thresholds and sizing are
+    // applied when they view a signal (see personalSignal in server/index.ts).
+    const profile = HOUSE_PROFILE;
     for (const d of this.data.values()) {
       const sym = d.inst.symbol;
       if (!this.news.has(sym) || this.news.get(sym)!.every((n) => n.source === "simulated")) this.news.set(sym, this.sim.news(sym));
@@ -235,56 +237,62 @@ export class Agent extends EventEmitter {
       this.push({ kind: "upgrade", symbol: f.symbol, title: `${f.symbol} forecast upgraded`, body: `5-day ${b.expectedReturn.toFixed(2)}% (was ${a.expectedReturn.toFixed(2)}%), confidence ${b.confidence}.`, confidence: b.confidence });
     if (a.confidence - b.confidence >= 8 && a.expectedReturn > 0)
       this.push({ kind: "downgrade", symbol: f.symbol, title: `${f.symbol} forecast downgraded`, body: `Confidence ${a.confidence} → ${b.confidence}.`, confidence: b.confidence });
-    const alreadyOpen = store.data.ledger.some((l) => l.outcome === "open" && l.signal.symbol === sig.symbol && l.signal.side === sig.side);
+    const alreadyOpen = store.global.ledger.some((l) => l.outcome === "open" && l.signal.symbol === sig.symbol && l.signal.side === sig.side);
     if (sig.side !== "hold" && prevSig?.side !== sig.side && !alreadyOpen) {
       this.push({ kind: "signal", symbol: f.symbol, title: `${sig.side.toUpperCase()} ${f.symbol}`, body: `Entry ${fmt(sig.entry)} · stop ${fmt(sig.stop)} · target ${fmt(sig.target)} · ${sig.rule}`, confidence: sig.confidence });
-      store.update("ledger", (l) => [{ signal: sig, outcome: "open" as const }, ...l].slice(0, 500));
+      store.updateGlobal("ledger", (l) => [{ signal: sig, outcome: "open" as const }, ...l].slice(0, 500));
       this.fireSignalAlerts(sig);
     }
     if (Math.sign(prev.sentiment.score) !== Math.sign(f.sentiment.score) && Math.abs(f.sentiment.score) > 0.25) {
       this.push({ kind: "news", symbol: f.symbol, title: `${f.symbol} sentiment flipped ${f.sentiment.score > 0 ? "positive" : "negative"}`, body: `Score ${prev.sentiment.score.toFixed(2)} → ${f.sentiment.score.toFixed(2)}, news momentum ${f.sentiment.momentum.toFixed(2)}.` });
-      for (const a of store.data.alerts.filter((x) => x.enabled && x.kind === "sentiment-flip" && x.symbol === f.symbol)) this.fire(a, `${f.symbol} sentiment flipped to ${f.sentiment.score.toFixed(2)}`);
+      for (const [uid, u] of store.users)
+        for (const a of u.alerts.filter((x) => x.enabled && x.kind === "sentiment-flip" && x.symbol === f.symbol)) this.fire(uid, a, `${f.symbol} sentiment flipped to ${f.sentiment.score.toFixed(2)}`);
     }
   }
 
   private fireSignalAlerts(sig: SignalCard) {
-    for (const a of store.data.alerts.filter((x) => x.enabled && x.kind === "signal" && x.symbol === sig.symbol)) this.fire(a, `${sig.side.toUpperCase()} ${sig.symbol} @ ${fmt(sig.entry)} (conf ${sig.confidence})`);
+    for (const [uid, u] of store.users)
+      for (const a of u.alerts.filter((x) => x.enabled && x.kind === "signal" && x.symbol === sig.symbol)) this.fire(uid, a, `${sig.side.toUpperCase()} ${sig.symbol} @ ${fmt(sig.entry)} (conf ${sig.confidence})`);
   }
 
   private checkAlerts() {
-    for (const a of store.data.alerts) {
+    for (const [uid, u] of store.users) this.checkUserAlerts(uid, u.alerts);
+  }
+
+  private checkUserAlerts(uid: string, alerts: AlertRule[]) {
+    for (const a of alerts) {
       if (!a.enabled) continue;
       const f = this.forecasts.get(a.symbol);
       if (!f) continue;
       const cool = !a.lastFiredAt || Date.now() - a.lastFiredAt > 3600_000;
       if (!cool) continue;
-      if (a.kind === "price-above" && a.value !== undefined && f.price >= a.value) this.fire(a, `${a.symbol} crossed above ${fmt(a.value)} (now ${fmt(f.price)})`);
-      if (a.kind === "price-below" && a.value !== undefined && f.price <= a.value) this.fire(a, `${a.symbol} fell below ${fmt(a.value)} (now ${fmt(f.price)})`);
-      if (a.kind === "pct-move" && a.value !== undefined && Math.abs(f.changePct) >= a.value) this.fire(a, `${a.symbol} moved ${f.changePct.toFixed(2)}% today`);
+      if (a.kind === "price-above" && a.value !== undefined && f.price >= a.value) this.fire(uid, a, `${a.symbol} crossed above ${fmt(a.value)} (now ${fmt(f.price)})`);
+      if (a.kind === "price-below" && a.value !== undefined && f.price <= a.value) this.fire(uid, a, `${a.symbol} fell below ${fmt(a.value)} (now ${fmt(f.price)})`);
+      if (a.kind === "pct-move" && a.value !== undefined && Math.abs(f.changePct) >= a.value) this.fire(uid, a, `${a.symbol} moved ${f.changePct.toFixed(2)}% today`);
       if (a.kind === "earnings") {
         const ne = this.data.get(a.symbol)?.fundamentals.nextEarnings;
-        if (ne && ne - Date.now() < (a.value ?? 3) * 86_400_000 && ne > Date.now()) this.fire(a, `${a.symbol} reports earnings ${new Date(ne).toDateString()}`);
+        if (ne && ne - Date.now() < (a.value ?? 3) * 86_400_000 && ne > Date.now()) this.fire(uid, a, `${a.symbol} reports earnings ${new Date(ne).toDateString()}`);
       }
       if (a.kind === "exit") {
-        const led = store.data.ledger.find((l) => l.signal.symbol === a.symbol && l.outcome === "open");
+        const led = store.global.ledger.find((l) => l.signal.symbol === a.symbol && l.outcome === "open");
         if (led) {
           const s = led.signal;
           const atrNear = Math.abs(s.entry - s.stop) * 0.25;
-          if (s.side === "buy" && f.price - s.stop < atrNear) this.fire(a, `${a.symbol} is near its stop ${fmt(s.stop)} — review exit`);
-          if (s.side === "buy" && s.target - f.price < atrNear) this.fire(a, `${a.symbol} is near its target ${fmt(s.target)}`);
+          if (s.side === "buy" && f.price - s.stop < atrNear) this.fire(uid, a, `${a.symbol} is near its stop ${fmt(s.stop)} — review exit`);
+          if (s.side === "buy" && s.target - f.price < atrNear) this.fire(uid, a, `${a.symbol} is near its target ${fmt(s.target)}`);
         }
       }
     }
   }
 
-  private fire(a: AlertRule, msg: string) {
-    store.update("alerts", (xs) => xs.map((x) => (x.id === a.id ? { ...x, lastFiredAt: Date.now() } : x)));
-    this.push({ kind: "alert", symbol: a.symbol, title: "Alert", body: msg });
-    this.emit("alert", { title: `Stockens · ${a.symbol}`, body: msg });
+  // Alerts are personal: they go only to the user who set them, never into the shared feed.
+  private fire(uid: string, a: AlertRule, msg: string) {
+    store.updateUser(uid, "alerts", (xs) => xs.map((x) => (x.id === a.id ? { ...x, lastFiredAt: Date.now() } : x)));
+    this.emit("alert", { uid, title: `Stockens · ${a.symbol}`, body: msg });
   }
 
   private updateLedger() {
-    store.update("ledger", (ledger) =>
+    store.updateGlobal("ledger", (ledger) =>
       ledger.map((l) => {
         if (l.outcome !== "open") return l;
         const f = this.forecasts.get(l.signal.symbol);
@@ -305,14 +313,14 @@ export class Agent extends EventEmitter {
     const check = () => {
       const d = new Date();
       const key = d.toDateString();
-      if (d.getHours() >= 16 && d.getMinutes() >= 5 && !store.data.reviews.some((r) => r.date === key)) this.runReview();
+      if (d.getHours() >= 16 && d.getMinutes() >= 5 && !store.global.reviews.some((r) => r.date === key)) this.runReview();
     };
     setInterval(check, 60_000);
   }
 
   runReview(): Review {
     const today = new Date().toDateString();
-    const recent = store.data.ledger.filter((l) => Date.now() - l.signal.createdAt < 5 * 86_400_000);
+    const recent = store.global.ledger.filter((l) => Date.now() - l.signal.createdAt < 5 * 86_400_000);
     const closed = recent.filter((l) => l.outcome !== "open");
     const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
     const byRuleMap = new Map<string, number[]>();
@@ -337,12 +345,12 @@ export class Agent extends EventEmitter {
         `Ensemble weights now: trees ${regime.weights.gbt}, sequence ${regime.weights.sequence}, trend ${regime.weights.trend}, reversion ${regime.weights.reversion}.`,
         `Breadth ${(this.ctx.breadth * 100).toFixed(0)}%, rates 20d ${(this.ctx.rates * 100).toFixed(1)}%, dollar 20d ${(this.ctx.dollar * 100).toFixed(1)}%.`,
         psychologyGauge(fcs, this.ctx.breadth, avgVolRatio(fcs)).crowd[0],
-        ...store.data.playbooks.filter((p) => regime.label.includes(p.regime)).map((p) => `Playbook "${p.name}" applies: ${p.steps[0]}`),
+        ...DEFAULT_PLAYBOOKS.filter((p) => regime.label.includes(p.regime)).map((p) => `Playbook "${p.name}" applies: ${p.steps[0]}`),
       ],
       stats: { signals: recent.length, closed: closed.length, winRate: closed.length ? closed.filter((l) => (l.pnlPct ?? 0) > 0).length / closed.length : 0, avgPnlPct: avg(closed.map((l) => l.pnlPct ?? 0)) },
       byRule,
     };
-    store.update("reviews", (r) => [review, ...r.filter((x) => x.date !== today)].slice(0, 60));
+    store.updateGlobal("reviews", (r) => [review, ...r.filter((x) => x.date !== today)].slice(0, 60));
     this.push({ kind: "regime", title: "End-of-day review ready", body: review.summary });
     return review;
   }
@@ -410,6 +418,8 @@ export class Agent extends EventEmitter {
     };
   }
 }
+
+const HOUSE_PROFILE = { ...DEFAULT_PROFILE, experience: "intermediate" as const };
 
 function avgVolRatio(fcs: Forecast[]) {
   const xs = fcs.map((f) => f.attributions.find((a) => a.feature === "vol_ratio")?.value ?? 0);

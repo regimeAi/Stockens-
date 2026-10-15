@@ -9,7 +9,7 @@ import { StrategyLab } from "./pages/StrategyLab";
 import { Risk } from "./pages/Risk";
 import { Crypto, type CryptoMsg } from "./pages/Crypto";
 import { Profile } from "./pages/Profile";
-import { Login } from "./pages/Login";
+import { Login, Paywall, type SessionInfo } from "./pages/Login";
 
 const TABS = [
   { id: "home", label: "Home", icon: Icon.home, title: "Today" },
@@ -26,6 +26,23 @@ const readHash = () => {
   return { tab: (TABS.some((t) => t.id === tab) ? tab : "home") as Tab, sym: sym?.toUpperCase() };
 };
 
+// Returning from Stripe Checkout: confirm the payment, then clean the URL.
+async function confirmCheckout() {
+  const q = new URLSearchParams(location.search);
+  const id = q.get("session_id");
+  if (q.get("checkout") !== "success" || !id) return;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const r = await api<{ access: boolean }>("/checkout/verify", { method: "POST", body: { sessionId: id } });
+      if (r.access) break;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  history.replaceState(null, "", "/");
+}
+
 export function App() {
   const [boot, setBootState] = useState<Boot>();
   const [route, setRoute] = useState(readHash);
@@ -34,12 +51,13 @@ export function App() {
   const [toastMsg, setToast] = useState<string>();
   const [crypto, setCrypto] = useState<CryptoMsg>();
   const [err, setErr] = useState<string>();
-  const [needLogin, setNeedLogin] = useState(false);
+  const [gate, setGate] = useState<SessionInfo>(); // set when the user must log in or pay
 
   useEffect(() => {
     const load = () =>
-      api<{ authRequired: boolean; authed: boolean }>("/session")
-        .then((s) => (s.authRequired && !s.authed ? setNeedLogin(true) : api<Boot>("/bootstrap").then(setBootState)))
+      confirmCheckout()
+        .then(() => api<SessionInfo>("/session"))
+        .then((s) => (s.access ? api<Boot>("/bootstrap").then(setBootState) : setGate(s)))
         .catch((e) => (setErr(e.message), setTimeout(load, 3000)));
     load();
     const h = () => setRoute(readHash());
@@ -72,7 +90,7 @@ export function App() {
     root.style.setProperty("--accent", boot.profile.accent);
   }, [boot?.profile.theme, boot?.profile.accent]);
 
-  if (needLogin) return <Login />;
+  if (gate) return gate.authed ? <Paywall session={gate} /> : <Login session={gate} />;
   if (!boot)
     return (
       <div className="empty" style={{ paddingTop: 120 }}>

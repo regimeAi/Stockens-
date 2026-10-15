@@ -98,7 +98,7 @@ export function Profile() {
               <a className="btn sm" href="/api/export/signals.csv">Download signals CSV</a>
             </div>
             <div className="tiny muted" style={{ marginTop: 10 }}>Synced {ago(p.updatedAt)} ago across your devices.</div>
-            <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => api("/logout", { method: "POST" }).then(() => location.reload())}>Log out of this device</button>
+            <AccountBox />
           </div>
         </div>
       )}
@@ -107,6 +107,44 @@ export function Profile() {
       {section === "review" && <ReviewView />}
       {section === "sources" && <Sources />}
       <p className="disclaimer">Stockens provides analytics and education. It is not financial advice; you make the final decisions.</p>
+    </div>
+  );
+}
+
+function AccountBox() {
+  const { boot, toast } = useApp();
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [open, setOpen] = useState(false);
+  if (boot.account.mode === "open") return null;
+  const change = async () => {
+    try {
+      await api("/password", { method: "POST", body: { current: cur, next } });
+      setCur(""); setNext(""); setOpen(false);
+      toast("Password changed. Other devices were logged out.");
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  };
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h2>Account</h2>
+      <div className="small ink2">{boot.account.email} · <span className="status-good">{boot.account.admin ? "Owner access" : "Lifetime access"}</span></div>
+      {open ? (
+        <div style={{ marginTop: 8 }}>
+          <input className="field" type="password" autoComplete="current-password" placeholder="Current password" value={cur} onChange={(e) => setCur(e.target.value)} />
+          <input className="field" style={{ marginTop: 6 }} type="password" autoComplete="new-password" placeholder="New password (8+ characters)" value={next} onChange={(e) => setNext(e.target.value)} />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn sm primary" disabled={!cur || next.length < 8} onClick={change}>Save password</button>
+            <button className="btn sm ghost" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="row wrap" style={{ marginTop: 8 }}>
+          <button className="btn sm" onClick={() => setOpen(true)}>Change password</button>
+          <button className="btn sm ghost" onClick={() => api("/logout", { method: "POST" }).then(() => location.replace("/"))}>Log out of this device</button>
+        </div>
+      )}
     </div>
   );
 }

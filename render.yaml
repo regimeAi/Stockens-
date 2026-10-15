@@ -1,5 +1,5 @@
 # One-click hosting on Render (https://render.com): New → Blueprint → pick this repo.
-# Render asks you for APP_PASSWORD when you create it; that's the password for the app.
+# Render will ask you for the values marked `sync: false` (see README → "Selling it").
 services:
   - type: web
     name: stockens
@@ -11,8 +11,19 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: APP_PASSWORD
+      # Postgres connection string (e.g. a free Neon database). Required: Render's free
+      # plan has no disk, so without it accounts and purchases vanish on every restart.
+      - key: DATABASE_URL
         sync: false
+      # Your email(s): full access without paying, and control of the BTC bot limits.
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PRICE_CENTS
+        value: "199"
       - key: SESSION_SECRET
         generateValue: true
       # Render's servers are in the US, where binance.com blocks connections; Binance.US
