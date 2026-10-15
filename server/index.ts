@@ -261,7 +261,12 @@ if (fs.existsSync(dist)) {
   app.get(/^(?!\/api|\/ws).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 
-await store.init();
+try {
+  await store.init();
+} catch (e) {
+  console.error(`\nStockens can't start: ${(e as Error).message}\n`);
+  process.exit(1);
+}
 initPush();
 const mode = authMode();
 if (mode === "open") console.warn("No STRIPE_SECRET_KEY or ADMIN_EMAILS: running in open single-user mode with no login. Don't host it online like this.");

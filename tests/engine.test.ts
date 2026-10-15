@@ -162,3 +162,13 @@ describe("stripe webhook signatures", async () => {
     expect(verifyWebhook(body, undefined)).toBe(false);
   });
 });
+
+describe("DATABASE_URL validation", async () => {
+  const { databaseUrlProblem } = await import("../server/store.ts");
+  it("explains common copy-paste mistakes and accepts a full Neon string", () => {
+    expect(databaseUrlProblem("postgresql://…channel_binding=require")).toMatch(/cut short/);
+    expect(databaseUrlProblem("neondb_owner:pw@host/db")).toBeTruthy();
+    expect(databaseUrlProblem("postgresql://neondb_owner@ep-x.us-west-2.aws.neon.tech/neondb")).toMatch(/no password/);
+    expect(databaseUrlProblem("postgresql://neondb_owner:secret@ep-x-pooler.c-3.us-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require")).toBeUndefined();
+  });
+});

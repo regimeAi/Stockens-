@@ -75,7 +75,7 @@ export const config = {
   },
   // Postgres connection string. Required on hosts without a persistent disk (e.g. Render's
   // free plan), otherwise accounts and purchases are lost when the server restarts.
-  databaseUrl: env("DATABASE_URL"),
+  databaseUrl: env("DATABASE_URL").trim().replace(/^["']|["']$/g, ""),
   auth: {
     sessionSecret: env("SESSION_SECRET"),
     // Comma-separated emails that get full access without paying (you, the owner).
