@@ -5,6 +5,7 @@ import { config } from "./config.ts";
 import { type Account, store } from "./store.ts";
 import { uid as makeId } from "./engine/indicators.ts";
 import { createCheckout, retrieveCheckout, verifyWebhook } from "./stripe.ts";
+import { mailConfigured, resetEmail, sendMail } from "./mailer.ts";
 
 // Accounts, sessions and the paywall.
 //
@@ -105,7 +106,11 @@ function markPaid(a: Account, sessionId: string, amount?: number) {
   store.saveAccount({ ...a, paid: true, paidAt: Date.now(), stripeSessionId: sessionId, amountCents: amount });
 }
 
-const origin = (req: express.Request) => `${req.protocol}://${req.get("host")}`;
+// Links that leave the app (Stripe redirects, reset emails) use the configured public URL, never
+// the request's Host header, which a client can forge to point a reset link at another site.
+const origin = (req: express.Request) => config.publicUrl || `${req.protocol}://${req.get("host")}`;
+const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest();
+const RESET_TTL_MS = 60 * 60_000;
 
 export function authRoutes(api: express.Router) {
   api.get("/session", (req, res) => {
@@ -118,6 +123,7 @@ export function authRoutes(api: express.Router) {
       admin: isAdmin(a),
       paid: !!a?.paid,
       price: { cents: config.stripe.priceCents, currency: config.stripe.currency },
+      resetAvailable: mailConfigured(),
     });
   });
 
@@ -173,6 +179,50 @@ export function authRoutes(api: express.Router) {
     res.json({ ok: true });
   });
 
+  // ---- password reset by email ----
+  api.post("/password/forgot", async (req, res) => {
+    if (authMode() === "open") return res.json({ ok: true });
+    if (!mailConfigured()) return res.status(503).json({ error: "Password reset by email isn't set up on this server yet. Contact the app owner." });
+    const ip = req.ip ?? "?";
+    if (limited(ip)) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
+    recordFail(ip); // every request counts, so this can't be used to spam inboxes
+    const a = store.accountByEmail(String(req.body?.email ?? ""));
+    // Same answer whether or not the account exists, so emails can't be probed.
+    const reply = { ok: true, message: "If that email has an account, a reset link is on its way. Check your inbox and spam folder." };
+    if (!a || (a.resetSentAt && Date.now() - a.resetSentAt < 60_000)) return res.json(reply);
+    const token = crypto.randomBytes(32).toString("base64url");
+    store.saveAccount({ ...a, resetHash: sha256(token).toString("hex"), resetExpires: Date.now() + RESET_TTL_MS, resetSentAt: Date.now() });
+    const mail = resetEmail(`${origin(req)}/?reset=${a.id}.${token}`);
+    try {
+      await sendMail(a.email, mail.subject, mail.text, mail.html);
+    } catch (e) {
+      console.error("reset email:", (e as Error).message);
+    }
+    res.json(reply);
+  });
+
+  api.post("/password/reset", (req, res) => {
+    if (authMode() === "open") return res.json({ ok: true });
+    const ip = req.ip ?? "?";
+    if (limited(ip)) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
+    const [id, token] = String(req.body?.token ?? "").split(".");
+    const a = id ? store.accounts.get(id) : undefined;
+    const valid =
+      !!a && !!token && !!a.resetHash && (a.resetExpires ?? 0) > Date.now() && crypto.timingSafeEqual(sha256(token), Buffer.from(a.resetHash, "hex"));
+    if (!valid) {
+      recordFail(ip);
+      return res.status(400).json({ error: "This reset link is invalid or has expired. Request a new one." });
+    }
+    const password = String(req.body?.password ?? "");
+    if (password.length < 8 || password.length > 200) return res.status(400).json({ error: "Password must be at least 8 characters." });
+    // New hash logs out every other device; the link can't be reused.
+    const upd: Account = { ...a, ...hashPassword(password), resetHash: undefined, resetExpires: undefined };
+    store.saveAccount(upd);
+    attempts.delete(ip);
+    setSession(req, res, upd);
+    res.json({ ok: true });
+  });
+
   // ---- payment ----
   api.post("/checkout", async (req, res) => {
     const a = accountFor(req);
@@ -224,7 +274,7 @@ export function stripeWebhook(req: express.Request, res: express.Response) {
 }
 
 // Everything else under /api needs a signed-in account with access.
-const PUBLIC = new Set(["/session", "/signup", "/login", "/logout", "/password", "/checkout", "/checkout/verify", "/health", "/crypto/tradingview"]);
+const PUBLIC = new Set(["/session", "/signup", "/login", "/logout", "/password", "/password/forgot", "/password/reset", "/checkout", "/checkout/verify", "/health", "/crypto/tradingview"]);
 export function requireAccess(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (PUBLIC.has(req.path)) return next();
   const a = accountFor(req);

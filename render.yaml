@@ -22,6 +22,11 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      # Password-reset emails via Brevo (free; can send from your Gmail address).
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: PRICE_CENTS
         value: "199"
       - key: SESSION_SECRET

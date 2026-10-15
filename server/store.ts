@@ -56,6 +56,9 @@ export interface Account {
   paidAt?: number;
   stripeSessionId?: string;
   amountCents?: number;
+  resetHash?: string; // sha256 of the emailed reset token
+  resetExpires?: number;
+  resetSentAt?: number;
 }
 
 export interface UserData {
