@@ -49,6 +49,15 @@ export const config = {
   },
   // Free daily history for backtests (unofficial endpoint; falls back to the simulator).
   yahooHistory: bool("YAHOO_HISTORY", true),
+  // Licensed market data (recommended for a paid app): one key for prices, history and news.
+  polygon: { apiKey: env("POLYGON_API_KEY"), base: env("POLYGON_BASE", "https://api.polygon.io") },
+  // SEC EDGAR asks every client to identify itself with a contact email.
+  secUserAgent: env("SEC_USER_AGENT", `Stockens research ${env("ADMIN_EMAILS").split(",")[0] || "contact@example.com"}`),
+  // Market-wide news feeds (RSS/Atom) read by the macro desk. Comma-separated.
+  macroFeeds: env(
+    "MACRO_FEEDS",
+    "https://www.federalreserve.gov/feeds/press_all.xml,https://feeds.content.dowjones.io/public/rss/mw_topstories,https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114,https://www.sec.gov/news/pressreleases.rss",
+  ).split(",").map((s) => s.trim()).filter(Boolean),
 
   crypto: {
     binanceWs: env("BINANCE_WS", "wss://stream.binance.com:9443/stream"),

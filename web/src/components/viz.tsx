@@ -11,7 +11,7 @@ function diverging(v: number) {
   return `color-mix(in srgb, ${pole} ${Math.round(a * 85)}%, var(--div-mid))`;
 }
 
-export function NewsHeatmap({ sectors }: { sectors: { sector: string; items: HeatItem[] }[] }) {
+export function NewsHeatmap({ sectors }: { sectors: { sector: string; total?: number; items: HeatItem[] }[] }) {
   const { openTicker } = useApp();
   const [metric, setMetric] = useState<"sentiment" | "newsMomentum" | "changePct">("sentiment");
   const val = (i: HeatItem) => (metric === "changePct" ? i.changePct / 4 : i[metric]);
@@ -35,7 +35,10 @@ export function NewsHeatmap({ sectors }: { sectors: { sector: string; items: Hea
           .sort((a, b) => b.items.length - a.items.length)
           .map((s) => (
             <div key={s.sector}>
-              <div className="tiny muted" style={{ marginBottom: 3 }}>{s.sector}</div>
+              <div className="tiny muted" style={{ marginBottom: 3 }}>
+                {s.sector}
+                {s.total && s.total > s.items.length ? ` · most active ${s.items.length} of ${s.total}` : ""}
+              </div>
               <div className="heat">
                 {s.items.map((i) => {
                   const v = val(i);

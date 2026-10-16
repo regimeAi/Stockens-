@@ -163,11 +163,20 @@ class FileKV implements KV {
   async put(key: string, value: unknown) {
     this.data[key] = value;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
+    this.timer = setTimeout(() => this.flush(), 250);
+  }
+  // A failed save (disk full, folder removed) is logged and retried, never fatal.
+  private flush() {
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
       const tmp = this.file + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify(this.data));
       fs.renameSync(tmp, this.file);
-    }, 250);
+    } catch (e) {
+      console.error("store: save failed, retrying in 10s:", (e as Error).message);
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.flush(), 10_000);
+    }
   }
 }
 

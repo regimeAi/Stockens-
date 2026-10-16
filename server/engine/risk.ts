@@ -107,12 +107,12 @@ export interface Scenario {
 
 export const SCENARIOS: Scenario[] = [
   { id: "gap-down", name: "Market gaps down 5%", market: -5, rates: 1, vol: 1.8 },
-  { id: "rates-up", name: "Rates spike (+50bp)", market: -2, rates: -6, vol: 1.3, sectorShocks: { Technology: -2, "Real Estate": -3, Utilities: -2, Financials: 1 } },
-  { id: "rates-down", name: "Rates fall (−50bp)", market: 1.5, rates: 6, vol: 0.9, sectorShocks: { Technology: 1.5, "Real Estate": 3, Financials: -1 } },
+  { id: "rates-up", name: "Rates spike (+50bp)", market: -2, rates: -6, vol: 1.3, sectorShocks: { "Information Technology": -2, "Real Estate": -3, Utilities: -2, Financials: 1 } },
+  { id: "rates-down", name: "Rates fall (−50bp)", market: 1.5, rates: 6, vol: 0.9, sectorShocks: { "Information Technology": 1.5, "Real Estate": 3, Financials: -1 } },
   { id: "vol-spike", name: "Volatility spike (VIX 35)", market: -7, rates: 2, vol: 2.5, sectorShocks: { Crypto: -12 } },
   { id: "2020-03", name: "Historical analog: Mar 2020", market: -12, rates: 4, vol: 4 },
-  { id: "2022-rates", name: "Historical analog: 2022 rate shock", market: -8, rates: -10, vol: 1.6, sectorShocks: { Technology: -6, Communication: -6, Energy: 8 } },
-  { id: "ai-unwind", name: "AI trade unwinds", market: -3, rates: 0, vol: 1.5, sectorShocks: { Technology: -9, Utilities: -6, "Real Estate": -4 } },
+  { id: "2022-rates", name: "Historical analog: 2022 rate shock", market: -8, rates: -10, vol: 1.6, sectorShocks: { "Information Technology": -6, "Communication Services": -6, Energy: 8 } },
+  { id: "ai-unwind", name: "AI trade unwinds", market: -3, rates: 0, vol: 1.5, sectorShocks: { "Information Technology": -9, Utilities: -6, "Real Estate": -4 } },
 ];
 
 export function runScenario(positions: Position[], bars: Map<string, Bar[]>, insts: Map<string, Instrument>, sc: Scenario) {

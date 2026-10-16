@@ -192,6 +192,8 @@ export interface Profile {
   notifications: { push: boolean; inApp: boolean; quietHours?: [number, number] };
   // Forecast-anomaly alerts: which names, and how severe before you're pinged.
   anomalyAlerts: { enabled: boolean; scope: "watchlists" | "all"; minSeverity: 1 | 2 | 3 };
+  onboardedAt?: number; // finished (or skipped) the first-run tutorial
+  disclaimerAcceptedAt?: number; // acknowledged "analytics and education, not financial advice"
   broker?: { name: string; exportFormat: "csv" | "json" };
   updatedAt: number;
 }
