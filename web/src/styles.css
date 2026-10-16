@@ -180,3 +180,22 @@ canvas.graph { width: 100%; height: 360px; display: block; touch-action: none; }
 
 .login { min-height: 100dvh; display: grid; place-items: center; padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px); }
 .login > .card { width: 100%; max-width: 380px; text-align: center; padding: 28px 20px; }
+
+.desk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.desk { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.desk .chips .chip { min-height: 30px; font-size: 12px; padding: 0 9px; }
+
+/* First-run tour */
+.tour { position: fixed; inset: 0; z-index: 90; }
+.tour-dim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); }
+.tour-hole { position: fixed; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62); outline: 2px solid var(--accent); transition: all 0.25s ease; pointer-events: none; }
+.tour-card { position: fixed; left: 50%; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); border-radius: 18px; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); max-height: 70dvh; overflow-y: auto; }
+.tour-card.centered { top: 50%; transform: translate(-50%, -50%); }
+.tour-card.at-bottom { bottom: calc(var(--safe-bottom) + 12px); max-height: 46dvh; }
+.tour-card.at-top { top: calc(var(--safe-top) + 12px); }
+.tour-dots { display: flex; gap: 4px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+.tour-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--axis); }
+.tour-dots span.on { background: var(--accent); width: 16px; border-radius: 3px; }
+body.touring .sheet { z-index: 41; }
+[data-tour] { scroll-margin-top: calc(var(--safe-top) + 76px); }
+.sheet [data-tour] { scroll-margin-top: 12px; }

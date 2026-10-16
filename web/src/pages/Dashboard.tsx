@@ -3,6 +3,7 @@ import { ago, cls, fmtPct, fmtPrice, useApp, usePoll } from "../api";
 import { ConfidenceMeter, SideBadge, Tip } from "../components/ui";
 import { NewsHeatmap } from "../components/viz";
 import { AnomaliesCard } from "../components/anomalies";
+import { DesksCard, MacroCard, type DeskBrief, type MacroBrief } from "../components/desks";
 
 export interface DashboardData {
   updatedAt: number;
@@ -12,7 +13,10 @@ export interface DashboardData {
   topBuys: { signal: SignalCard; forecast: Forecast; actionable: boolean }[];
   topSells: { signal: SignalCard; forecast: Forecast; actionable: boolean }[];
   upgrades: { symbol: string; name: string; score: number; h5: HorizonForecast; price: number; changePct: number }[];
-  heatmap: { sector: string; items: { symbol: string; changePct: number; sentiment: number; newsMomentum: number; newsCount: number }[] }[];
+  heatmap: { sector: string; total?: number; items: { symbol: string; changePct: number; sentiment: number; newsMomentum: number; newsCount: number }[] }[];
+  desks: DeskBrief[];
+  macro: MacroBrief;
+  coverage: { symbols: number; realHistory: number };
   feed: FeedItem[];
   sources: SourceStatus[];
 }
@@ -25,7 +29,7 @@ export function Dashboard() {
   const novice = boot.profile.experience === "novice";
   return (
     <div className="grid">
-      <div className="card span-12">
+      <div className="card span-12" data-tour="regime">
         <div className="row wrap" style={{ gap: 16 }}>
           <div>
             <div className="small ink2 row">Market regime <Tip text="The agent labels the market state (trend, volatility, season, liquidity) and re-weights its models so one playbook doesn't get over-used." /></div>
@@ -47,11 +51,7 @@ export function Dashboard() {
         )}
       </div>
 
-      <div className="card span-12">
-        <AnomaliesCard />
-      </div>
-
-      <div className="card span-6">
+      <div className="card span-6" data-tour="buys">
         <h2>
           Best 5-day buys <Tip text="Ranked by expected 5-day return × confidence. BUY means it passed your profile's signal thresholds; WATCH means it leans up but isn't strong enough yet." />
           <span className="sub">live</span>
@@ -66,7 +66,18 @@ export function Dashboard() {
         <Leans rows={d.topSells} onOpen={openTicker} />
       </div>
 
-      <div className="card span-8">
+      <div className="card span-12" data-tour="anomalies">
+        <AnomaliesCard />
+      </div>
+
+      <div className="card span-8" data-tour="desks">
+        <DesksCard desks={d.desks} />
+      </div>
+      <div className="card span-4">
+        <MacroCard macro={d.macro} />
+      </div>
+
+      <div className="card span-8" data-tour="heatmap">
         <h2>
           News heatmap <Tip text="Each tile is a ticker, grouped by sector. Momentum of news shows where tone and coverage are changing fastest — often an early sign of an inflection." />
         </h2>

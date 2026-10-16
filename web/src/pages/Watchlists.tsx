@@ -164,7 +164,7 @@ function Screener({ rows, horizon }: { rows: Row[]; horizon: Horizon }) {
             <tr><th>Symbol</th><th>Signal</th><th>Price</th><th>Fcst</th><th>Conf</th><th>P(up)</th><th>Sent.</th><th>P/E</th><th>Div %</th><th>Sector</th></tr>
           </thead>
           <tbody>
-            {list.map((r) => (
+            {list.slice(0, 150).map((r) => (
               <tr key={r.symbol} className="click" onClick={() => openTicker(r.symbol)}>
                 <td><b>{r.symbol}</b></td>
                 <td><SideBadge side={r.signal} /></td>
@@ -181,6 +181,7 @@ function Screener({ rows, horizon }: { rows: Row[]; horizon: Horizon }) {
           </tbody>
         </table>
       </div>
+      {list.length > 150 && <div className="tiny muted" style={{ marginTop: 6 }}>Showing the top 150 of {list.length}. Use the filters to narrow it down.</div>}
     </div>
   );
 }

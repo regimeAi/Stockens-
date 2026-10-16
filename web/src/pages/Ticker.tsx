@@ -55,7 +55,7 @@ export function Ticker({ symbol }: { symbol: string }) {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" data-tour="forecast">
         <h2>
           5-day forecast <Tip text="The dashed line is the model's expected path; the shaded cone is the 80% confidence band — 8 times out of 10 the price should finish inside it." />
           <span className="sub">{f.regime.label}</span>
@@ -72,7 +72,7 @@ export function Ticker({ symbol }: { symbol: string }) {
           </h2>
           <HorizonBands horizons={f.horizons} />
         </div>
-        <div className="card span-6">
+        <div className="card span-6" data-tour="why">
           <h2>
             What drove this call <Tip text="Feature attributions for the 5-day forecast: how many percentage points each input added or subtracted." />
           </h2>
@@ -175,7 +175,7 @@ function SignalCardView({ s, f, d }: { s: SignalCard; f: Forecast; d: Detail }) 
   const scale = account / boot.profile.risk.accountSize;
   const shares = s.entry > 1000 ? s.sizing.shares * scale : Math.floor(s.sizing.shares * scale);
   return (
-    <div className="card">
+    <div className="card" data-tour="signal">
       <h2>
         Signal card <Tip text="The forecast translated into a rules-based trade: where to enter, where you're wrong (stop), where to take profit (target), how long to hold and how much to buy so a stop-out only costs your per-trade risk budget." />
         <span className="sub">{s.rule} rule · {s.expectedMovePct >= 0 ? "long" : "short"} setup{s.side === "hold" ? " (not triggered)" : ""}</span>

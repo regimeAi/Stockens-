@@ -39,6 +39,7 @@ export interface AppCtx {
   boot: Boot;
   setBoot: (fn: (b: Boot) => Boot) => void;
   openTicker: (s: string) => void;
+  startTour: () => void;
   toast: (msg: string) => void;
   tick: number; // increments on each agent cycle
   feed: FeedItem[];

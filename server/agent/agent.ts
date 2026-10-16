@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
 import { config } from "../config.ts";
-import type { AlertRule, Anomaly, Bar, FeedItem, Forecast, Fundamentals, NewsItem, SignalCard, SourceStatus, StrategyConfig } from "../types.ts";
+import type { AlertRule, Anomaly, Bar, FeedItem, Forecast, Fundamentals, Instrument, NewsItem, SignalCard, SourceStatus, StrategyConfig } from "../types.ts";
 import { MACRO_PROXIES, UNIVERSE, instrument } from "../data/universe.ts";
 import { MarketSimulator } from "../data/simulator.ts";
-import { FinvizSource, HistorySource, JsonSiteSource } from "../data/sources.ts";
+import { FinvizSource, HistorySource, JsonSiteSource, PolygonSource } from "../data/sources.ts";
+import { type DeskBrief, MacroDesk, SectorDesk } from "./desks.ts";
+import { secHealth } from "../data/news.ts";
 import { type MarketContext, computeFeatures } from "../engine/features.ts";
 import { type SymbolData, type TrainedModel, forecast, trainModels } from "../engine/ensemble.ts";
 import { detectRegime } from "../engine/regime.ts";
@@ -27,6 +29,11 @@ export class Agent extends EventEmitter {
   mesarri = new JsonSiteSource("mesarri", "Mesarri (Blockworth)", "https://mesarri.io", config.mesarri);
   invo = new JsonSiteSource("invo", "InvoApp", "https://app.invoapp.com", config.invo);
   history = new HistorySource();
+  polygon = new PolygonSource();
+  desks: SectorDesk[] = [];
+  macro: MacroDesk;
+  historyLoaded = 0;
+  private quoteCursor = 0;
   data = new Map<string, SymbolData>();
   news = new Map<string, NewsItem[]>();
   siteScores = new Map<string, { source: string; score: number }[]>();
@@ -51,6 +58,16 @@ export class Agent extends EventEmitter {
       const s = this.sim.get(inst.symbol)!;
       this.data.set(inst.symbol, { inst, bars: s.bars, fundamentals: s.fundamentals, live: false });
     }
+    // One desk per GICS sector, plus funds/macro gauges and crypto.
+    const groups = new Map<string, Instrument[]>();
+    for (const inst of UNIVERSE) {
+      const g = inst.assetClass === "crypto" ? "Crypto" : inst.assetClass === "etf" ? "Funds & macro" : inst.sector;
+      groups.set(g, [...(groups.get(g) ?? []), inst]);
+    }
+    this.desks = [...groups.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([name, members]) => new SectorDesk(name.toLowerCase().replace(/[^a-z]+/g, "-"), name, members, this));
+    this.macro = new MacroDesk(UNIVERSE, this);
   }
 
   get sources(): SourceStatus[] {
@@ -61,6 +78,16 @@ export class Agent extends EventEmitter {
       simStatus(this.mesarri.status),
       simStatus(this.invo.status),
       simStatus(this.history.status),
+      this.polygon.enabled() ? this.polygon.status : { ...this.polygon.status, status: "disabled" as const },
+      {
+        id: "sec",
+        name: "SEC EDGAR filings",
+        url: "https://www.sec.gov/edgar",
+        status: !config.liveData ? ("simulated" as const) : secHealth.lastOk && !secHealth.error ? ("live" as const) : secHealth.error ? ("error" as const) : ("disabled" as const),
+        lastOk: secHealth.lastOk,
+        note: secHealth.error ?? (secHealth.lastOk ? `filings read for ${secHealth.companies} company checks` : "8-K, 10-Q/10-K, Form 4 and 13D filings for every S&P 500 company — starting up"),
+      },
+      { id: "macro", name: "Market-wide news feeds", url: "https://www.federalreserve.gov", status: this.macro.status.includes("live") ? ("live" as const) : config.liveData ? ("error" as const) : ("simulated" as const), note: this.macro.status, lastOk: this.macro.lastSweepAt },
       ...(crypto
         ? [
             { id: "binance", name: "Binance WebSocket", url: "https://binance.com", status: crypto.binance === "live" ? "live" : "simulated", note: crypto.binance } as SourceStatus,
@@ -73,14 +100,25 @@ export class Agent extends EventEmitter {
   }
 
   async start() {
-    this.status = "loading history";
-    await this.loadHistory();
+    // Start on whatever we have (simulated until real history arrives), so the app is usable
+    // immediately; real history streams in behind it and the models retrain once it lands.
     this.refreshContext();
     this.status = "training models";
     this.retrain();
     this.status = "running";
     await this.cycle();
     this.timer = setInterval(() => void this.cycle(), config.agentIntervalMs);
+    void this.loadHistory().then((n) => {
+      if (n > 0) {
+        this.refreshContext();
+        this.retrain();
+      }
+    });
+    // Desks tick on staggered timers; the shared per-host limiter keeps the total polite.
+    this.desks.forEach((d, i) => setTimeout(() => setInterval(() => void d.tick(), 6000), i * 450));
+    const sweepMacro = () => void this.macro.sweep().catch(() => (this.macro.status = "error"));
+    setTimeout(sweepMacro, 3000);
+    setInterval(sweepMacro, 10 * 60_000);
     setInterval(() => this.retrain(), 6 * 3600_000);
     setTimeout(() => this.computeRuleStats(), 2000);
     this.scheduleReview();
@@ -90,18 +128,84 @@ export class Agent extends EventEmitter {
     clearInterval(this.timer);
   }
 
-  private async loadHistory() {
-    if (!this.history.enabled()) return;
+  // Real daily history for every symbol: Polygon if configured, else Yahoo. Returns how many loaded.
+  private async loadHistory(): Promise<number> {
+    if (!this.history.enabled() && !this.polygon.enabled()) return 0;
     const queue = [...UNIVERSE];
+    let failsInARow = 0;
     await Promise.all(
-      Array.from({ length: 4 }, async () => {
+      Array.from({ length: 3 }, async () => {
         for (let inst = queue.shift(); inst; inst = queue.shift()) {
-          const bars = await this.history.bars(inst.symbol, inst.assetClass === "crypto");
-          if (bars) this.data.set(inst.symbol, { ...this.data.get(inst.symbol)!, bars, live: true });
-          else if (this.history.status.status === "error" && queue.length > UNIVERSE.length - 6) return; // offline: stop early
+          const crypto = inst.assetClass === "crypto";
+          const bars = (!crypto && (await this.polygon.bars(inst.symbol))) || (await this.history.bars(inst.symbol, crypto));
+          if (bars) {
+            this.data.set(inst.symbol, { ...this.data.get(inst.symbol)!, bars, live: true });
+            this.historyLoaded++;
+            failsInARow = 0;
+          } else if (++failsInARow >= 12 && this.historyLoaded === 0) return; // sources unreachable: stay on the simulator
+          this.status = `running · real history ${this.historyLoaded}/${UNIVERSE.length}`;
         }
       }),
     );
+    this.status = this.historyLoaded ? `running · real history for ${this.historyLoaded}/${UNIVERSE.length}` : "running (simulated prices)";
+    return this.historyLoaded;
+  }
+
+  // Live prices: one full-market snapshot with Polygon, otherwise rotating Yahoo batches.
+  private async refreshPrices() {
+    let prices = new Map<string, number>();
+    if (this.polygon.enabled()) prices = await this.polygon.allPrices();
+    else if (this.history.enabled()) {
+      for (let k = 0; k < 2; k++) {
+        const batch = UNIVERSE.slice(this.quoteCursor, this.quoteCursor + 20);
+        this.quoteCursor = this.quoteCursor + 20 >= UNIVERSE.length ? 0 : this.quoteCursor + 20;
+        for (const [s, p] of await this.history.quotes(batch.map((i) => ({ symbol: i.symbol, crypto: i.assetClass === "crypto" })))) prices.set(s, p);
+      }
+    }
+    const today = new Date().toDateString();
+    const weekday = ![0, 6].includes(new Date().getDay());
+    for (const [sym, p] of prices) {
+      const d = this.data.get(sym);
+      if (!d?.live) continue; // only update series that are real history
+      const b = d.bars.at(-1)!;
+      if (new Date(b.t).toDateString() !== today && weekday && Math.abs(p / b.c - 1) > 1e-6) {
+        d.bars.push({ t: Date.now(), o: p, h: p, l: p, c: p, v: 0 }); // first trade of a new session
+      } else {
+        b.c = p;
+        b.h = Math.max(b.h, p);
+        b.l = Math.min(b.l, p);
+      }
+    }
+  }
+
+  // DeskHost: desks hand real headlines and filings to the agent.
+  mergeNews(symbol: string, items: NewsItem[]) {
+    const prev = (this.news.get(symbol) ?? []).filter((n) => n.source !== "simulated");
+    const seen = new Set<string>();
+    const merged = [...items, ...prev].filter((n) => {
+      const h = n.headline.toLowerCase();
+      if (seen.has(n.id) || seen.has(h)) return false;
+      seen.add(n.id);
+      seen.add(h);
+      return true;
+    });
+    this.news.set(symbol, merged.sort((a, b) => b.t - a.t).slice(0, 40));
+  }
+
+  recentAnomalies(symbols: Set<string>, sinceMs: number) {
+    return this.anomalies.filter((a) => symbols.has(a.symbol) && Date.now() - a.t < sinceMs).length;
+  }
+
+  deskBriefs(): (DeskBrief & { macro?: never })[] {
+    return this.desks.map((d) => {
+      const b = d.brief();
+      b.catalysts = d.members
+        .flatMap((m) => (this.news.get(m.symbol) ?? []).filter((n) => n.source !== "simulated" && (n.source.startsWith("SEC") || Math.abs(n.sentiment) >= 0.3)))
+        .sort((x, y) => y.t - x.t)
+        .slice(0, 3)
+        .map((n) => ({ symbol: n.symbol, headline: n.headline, source: n.source, url: n.url, t: n.t }));
+      return b;
+    });
   }
 
   private refreshContext() {
@@ -123,7 +227,8 @@ export class Agent extends EventEmitter {
 
   retrain() {
     const t0 = Date.now();
-    this.models = trainModels([...this.data.values()], this.ctx, 80);
+    // Keep training affordable as the universe grows (~8k rows per horizon in total).
+    this.models = trainModels([...this.data.values()], this.ctx, Math.max(10, Math.min(80, Math.floor(8000 / this.data.size))));
     this.push({ kind: "regime", title: "Models retrained", body: this.models.map((m) => `${m.horizon}: OOS hit ${(m.oosHitRate * 100).toFixed(0)}%`).join(" · ") + ` (${((Date.now() - t0) / 1000).toFixed(1)}s)` });
   }
 
@@ -183,13 +288,30 @@ export class Agent extends EventEmitter {
     }
   }
 
+  private cycling = false;
   async cycle() {
+    // Never overlap: on a slow server a cycle can outlast the interval.
+    if (this.cycling) return;
+    this.cycling = true;
+    try {
+      await this.runCycle();
+    } finally {
+      this.cycling = false;
+    }
+  }
+
+  private async runCycle() {
     const t0 = Date.now();
     this.sim.tick(this.lastCycle ? t0 - this.lastCycle : config.agentIntervalMs);
     try {
       await this.pullSites();
     } catch {
       /* sources fail soft */
+    }
+    try {
+      await this.refreshPrices();
+    } catch {
+      /* fail soft */
     }
     this.applyCryptoPrices();
     this.refreshContext();
@@ -204,7 +326,9 @@ export class Agent extends EventEmitter {
     // Feed signals use a fixed "house" profile; each user's own thresholds and sizing are
     // applied when they view a signal (see personalSignal in server/index.ts).
     const profile = HOUSE_PROFILE;
+    let k = 0;
     for (const d of this.data.values()) {
+      if (++k % 25 === 0) await new Promise((r) => setImmediate(r)); // keep the server responsive
       const sym = d.inst.symbol;
       if (!this.news.has(sym) || this.news.get(sym)!.every((n) => n.source === "simulated")) this.news.set(sym, this.sim.news(sym));
       const news = this.news.get(sym)!;
@@ -435,10 +559,18 @@ export class Agent extends EventEmitter {
         .map((f) => ({ symbol: f.symbol, name: f.name, score: score(f), h5: h5(f), price: f.price, changePct: f.changePct }))
         .sort((a, b) => b.score - a.score)
         .slice(0, 8),
+      // Heatmap: the most active 16 names per sector (by news tone + move) keep it phone-friendly.
       heatmap: [...sectors.entries()].map(([sector, list]) => ({
         sector,
-        items: list.map((f) => ({ symbol: f.symbol, changePct: f.changePct, sentiment: f.sentiment.score, newsMomentum: f.sentiment.momentum, newsCount: f.sentiment.count })),
+        total: list.length,
+        items: list
+          .map((f) => ({ symbol: f.symbol, changePct: f.changePct, sentiment: f.sentiment.score, newsMomentum: f.sentiment.momentum, newsCount: f.sentiment.count }))
+          .sort((a, b) => Math.abs(b.sentiment) + Math.abs(b.changePct) / 3 - (Math.abs(a.sentiment) + Math.abs(a.changePct) / 3))
+          .slice(0, 16),
       })),
+      desks: this.deskBriefs(),
+      macro: { status: this.macro.status, tone: this.macro.tone(), headlines: this.macro.headlines.slice(0, 12) },
+      coverage: { symbols: this.data.size, realHistory: this.historyLoaded },
       feed: this.feed.slice(0, 60),
       sources: this.sources,
     };

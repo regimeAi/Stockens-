@@ -157,6 +157,52 @@ and writes the end-of-day review.
 watchlists, alerts, positions, strategies, ideas or playbooks change on one device, the change
 is broadcast to every other open device.
 
+## Market coverage and real data
+
+**Universe.** The app covers every **S&P 500** constituent (503 companies, with official GICS
+sector, sub-industry and SEC CIK, bundled in `server/data/sp500.json` from
+[datasets/s-and-p-500-companies](https://github.com/datasets/s-and-p-500-companies)), plus key ETFs
+and macro gauges, and BTC and the large memecoins. `UNIVERSE=focus` switches back to about 55
+curated names.
+
+**Sources, all failing soft to the simulator:**
+
+| What | Free default | Licensed upgrade |
+|---|---|---|
+| Prices & daily history | Yahoo chart/spark (unofficial; personal use) | `POLYGON_API_KEY`: one full-market snapshot per cycle plus 2 years of history |
+| Company news | Yahoo Finance headline RSS per ticker | Polygon news with per-ticker sentiment |
+| Filings | **SEC EDGAR** (official, public domain): 8-K items decoded (earnings, executive changes, impairments, bankruptcy…), 10-Q/10-K, Form 4, 13D | same |
+| Market-wide news | Federal Reserve, MarketWatch, CNBC and SEC press feeds, with company names routed to tickers | |
+
+Nobody can legally pull a raw feed straight from the NYSE or Nasdaq without an exchange data
+licence. Licensed vendors such as Polygon resell that consolidated feed. **If you sell the app,
+use a provider whose plan allows displaying data to your users.**
+
+**Sector desks.** `server/agent/desks.ts` runs one background agent per GICS sector, plus
+Funds & macro and Crypto. Each desk combs two of its companies every ~6 seconds (headlines plus
+SEC filings every 6 hours), so a full pass over the index takes roughly 15–20 minutes. A shared
+per-host rate limiter keeps everything polite, including SEC's 10 requests/second limit. Each desk
+publishes a brief: lean, average 5-day forecast, breadth, leaders and laggards, catalysts and
+anomaly count. A macro desk reads the market-wide feeds every 10 minutes.
+
+**Performance.** With 523 symbols, a cycle takes about 0.7–2 seconds on a laptop: the pattern
+model's windows are cached, cycles never overlap, and the loop yields to keep the API
+responsive. Memory stays around 355 MB with `NODE_OPTIONS=--max-old-space-size=256`. On Render's
+free 0.1-CPU instance, expect cycles of 10–20 seconds; the $7 Starter plan (0.5 CPU) is
+recommended.
+
+## First-run tutorial
+
+New users get a 16-step walkthrough (`web/src/components/Tour.tsx`). It:
+1. confirms the "analytics and education, not financial advice" acknowledgement (stored with a timestamp);
+2. personalizes experience level and account size;
+3. spotlights each real feature in turn: market mood, best ideas, anomalies, sector desks, the
+   news heatmap, a stock's forecast cone, its Signal Card and reasons, then Watchlists, Lab,
+   Risk, BTC and Me;
+4. finishes with a setup checklist.
+
+Users can skip it after the first step and replay it from **Me**.
+
 ## About the three websites
 
 - **Finviz:** set `FINVIZ_AUTH` to use the Elite export, which is recommended. Alternatively,

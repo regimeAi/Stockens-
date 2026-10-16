@@ -25,13 +25,30 @@ function window(bars: Bar[], end: number, len: number): number[] | undefined {
   return [...r.map((x) => (x - m) / s), ...v.map((x) => Math.log(x / vm + 1e-9) * 0.5)];
 }
 
+// Key windows only depend on bars that are already closed, so they're cached per series and
+// window length and extended incrementally — each refresh then costs one dot product per analog.
+// Stored as Float32Array to keep memory small (~40 MB for the whole S&P 500); only the
+// 20-bar window used by most horizons is cached.
+const keyCache = new WeakMap<Bar[], (Float32Array | null | undefined)[]>();
+function keyAt(bars: Bar[], i: number, len: number): ArrayLike<number> | undefined {
+  // Only cache windows that end at least one bar before the (still-moving) latest bar.
+  if (len !== 20 || i >= bars.length - 1) return window(bars, i, len);
+  let keys = keyCache.get(bars);
+  if (!keys) keyCache.set(bars, (keys = []));
+  if (keys[i] === undefined) {
+    const w = window(bars, i, len);
+    keys[i] = w ? Float32Array.from(w) : null;
+  }
+  return keys[i] ?? undefined;
+}
+
 export function attentionForecast(bars: Bar[], end: number, horizon: number, len = 20, temperature = 1): SequenceForecast {
   const q = window(bars, end, len);
   if (!q) return { expected: 0, dispersion: 0.02, effectiveAnalogs: 0, topAnalogs: [] };
   const d = q.length;
   const scores: { i: number; s: number; y: number }[] = [];
   for (let i = len + 1; i + horizon <= end; i += 1) {
-    const k = window(bars, i, len);
+    const k = keyAt(bars, i, len);
     if (!k) continue;
     let dot = 0;
     for (let j = 0; j < d; j++) dot += q[j] * k[j];

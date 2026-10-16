@@ -11,6 +11,13 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Keep Node's heap well inside the 512 MB instance (full S&P 500 runs at ~355 MB).
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=256
+      # Optional: licensed prices + news for every US stock (polygon.io). Leave blank to use
+      # the free sources (Yahoo prices, Yahoo/SEC/Fed news).
+      - key: POLYGON_API_KEY
+        sync: false
       # Postgres connection string (e.g. a free Neon database). Required: Render's free
       # plan has no disk, so without it accounts and purchases vanish on every restart.
       - key: DATABASE_URL

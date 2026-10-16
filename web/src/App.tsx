@@ -10,6 +10,7 @@ import { Risk } from "./pages/Risk";
 import { Crypto, type CryptoMsg } from "./pages/Crypto";
 import { Profile } from "./pages/Profile";
 import { Login, Paywall, ResetPassword, type SessionInfo } from "./pages/Login";
+import { Tour } from "./components/Tour";
 
 const TABS = [
   { id: "home", label: "Home", icon: Icon.home, title: "Today" },
@@ -51,7 +52,8 @@ export function App() {
   const [toastMsg, setToast] = useState<string>();
   const [crypto, setCrypto] = useState<CryptoMsg>();
   const [err, setErr] = useState<string>();
-  const [gate, setGate] = useState<SessionInfo>(); // set when the user must log in or pay
+  const [gate, setGate] = useState<SessionInfo>();
+  const [touring, setTouring] = useState(false); // set when the user must log in or pay
 
   useEffect(() => {
     const load = () =>
@@ -108,7 +110,7 @@ export function App() {
   const title = TABS.find((t) => t.id === route.tab)!.title;
 
   return (
-    <Ctx.Provider value={{ boot, setBoot, openTicker, toast, tick, feed, connected }}>
+    <Ctx.Provider value={{ boot, setBoot, openTicker, startTour: () => setTouring(true), toast, tick, feed, connected }}>
       <div className="app">
         <header className="topbar">
           <h1>{title}</h1>
@@ -130,7 +132,7 @@ export function App() {
         </main>
         <nav className="tabs">
           {TABS.map((t) => (
-            <button key={t.id} className={route.tab === t.id ? "on" : ""} onClick={() => go(t.id)} aria-label={t.label}>
+            <button key={t.id} data-tour={`tab-${t.id}`} className={route.tab === t.id ? "on" : ""} onClick={() => go(t.id)} aria-label={t.label}>
               {t.icon}
               {t.label}
             </button>
@@ -142,6 +144,7 @@ export function App() {
           </Sheet>
         )}
         {toastMsg && <div className="toast">{toastMsg}</div>}
+        {(touring || !boot.profile.onboardedAt) && <Tour onClose={() => setTouring(false)} />}
       </div>
     </Ctx.Provider>
   );

@@ -95,8 +95,9 @@ describe("backtester", () => {
     expect(r.equity.length).toBeGreaterThan(100);
   });
   it("caps parameter count", () => {
-    const sim = new MarketSimulator(UNIVERSE.slice(0, 45));
-    const bars = new Map(UNIVERSE.slice(0, 45).map((i) => [i.symbol, sim.get(i.symbol)!.bars] as [string, Bar[]]));
+    const subset = UNIVERSE.filter((i) => ["SPY", "QQQ", "NVDA", "MSFT"].includes(i.symbol));
+    const sim = new MarketSimulator(subset);
+    const bars = new Map(subset.map((i) => [i.symbol, sim.get(i.symbol)!.bars] as [string, Bar[]]));
     const s: StrategyConfig = { id: "t", name: "t", template: "trend", params: { fast: 20, slow: 50, minMom: 0.02, a: 1, b: 2 }, risk: DEFAULT_RISK, universe: ["SPY"], createdAt: 0 };
     const r = backtest(s, bars, ctx, bars.get("SPY")!, 5, 2);
     expect(Object.keys(r.strategy.params)).toHaveLength(4);
@@ -224,5 +225,42 @@ describe("forecast anomaly detection", async () => {
     expect(misses.map((m) => m.symbol)).toEqual(["M"]); // +12% landed above M's band, inside N's
     expect(calibration(log, Infinity, 0).insideRate).toBe(0.5);
     expect(robustZ(10, [1, 1, 1, 1], 0.5)).toBe(18);
+  });
+});
+
+describe("S&P 500 universe and news parsing", async () => {
+  const { UNIVERSE, CIK, SP500_META } = await import("../server/data/universe.ts");
+  const { parseFeed, nameMatcher } = await import("../server/data/news.ts");
+  const { yahooSymbol } = await import("../server/data/http.ts");
+
+  it("covers every S&P 500 constituent with a GICS sector and SEC id", () => {
+    expect(SP500_META.count).toBeGreaterThanOrEqual(500);
+    const sp = UNIVERSE.filter((i) => i.themes.includes("sp500"));
+    expect(sp.length).toBe(SP500_META.count);
+    expect(new Set(sp.map((i) => i.sector)).size).toBe(11);
+    expect(CIK.get("AAPL")).toBe(320193);
+    expect(UNIVERSE.find((i) => i.symbol === "NVDA")!.themes).toEqual(expect.arrayContaining(["AI", "semis", "sp500"]));
+    for (const s of ["SPY", "BTC", "TSM"]) expect(UNIVERSE.some((i) => i.symbol === s)).toBe(true);
+    expect(yahooSymbol("BRK.B")).toBe("BRK-B");
+    expect(yahooSymbol("BTC", true)).toBe("BTC-USD");
+  });
+
+  it("parses RSS and Atom feeds", () => {
+    const rss = `<?xml version="1.0"?><rss><channel><item><title>Nvidia beats estimates</title><link>https://x/1</link><pubDate>Tue, 14 Oct 2026 12:00:00 GMT</pubDate><description>&lt;p&gt;Record data center sales&lt;/p&gt;</description></item></channel></rss>`;
+    const atom = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>8-K - Apple Inc.</title><link href="https://sec/2"/><updated>2026-10-14T12:00:00Z</updated><summary>Item 2.02</summary></entry></feed>`;
+    const r = parseFeed(rss)[0];
+    expect(r).toMatchObject({ title: "Nvidia beats estimates", link: "https://x/1", summary: "Record data center sales" });
+    expect(r.t).toBe(Date.parse("2026-10-14T12:00:00Z"));
+    expect(parseFeed(atom)[0]).toMatchObject({ title: "8-K - Apple Inc.", link: "https://sec/2" });
+  });
+
+  it("routes market-wide headlines to the right companies", () => {
+    const match = nameMatcher(UNIVERSE.filter((i) => i.assetClass === "equity"));
+    expect(match("Nvidia shares jump after record quarter")).toContain("NVDA");
+    expect(match("JPMorgan Chase raises its dividend")).toContain("JPM");
+    expect(match("Fed holds rates steady; $TSLA slips")).toContain("TSLA");
+    // Ordinary-word company names need a market cue, so these don't misfire:
+    expect(match("Officials target inflation of 2%")).not.toContain("TGT");
+    expect(match("Target shares fall on weak guidance")).toContain("TGT");
   });
 });

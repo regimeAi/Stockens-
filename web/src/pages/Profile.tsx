@@ -13,7 +13,7 @@ const AVATARS = ["🦊", "🐂", "🐻", "🦉", "🚀", "💎", "🧠", "🐳",
 const ACCENTS = ["#2a78d6", "#1baf7a", "#eb6834", "#4a3aa7", "#e87ba4", "#0b0b0b"];
 
 export function Profile() {
-  const { boot, setBoot, toast } = useApp();
+  const { boot, setBoot, toast, startTour } = useApp();
   const [section, setSection] = useState<"profile" | "alerts" | "review" | "sources">("profile");
   const p = boot.profile;
   const save = async (patch: Omit<Partial<P>, "risk" | "notifications"> & { risk?: Partial<P["risk"]>; notifications?: Partial<P["notifications"]> }) => {
@@ -134,6 +134,9 @@ export function Profile() {
       {section === "alerts" && <Alerts toast={toast} />}
       {section === "review" && <ReviewView />}
       {section === "sources" && <Sources />}
+      <div style={{ textAlign: "center" }}>
+        <button className="btn" onClick={startTour}>Replay the tutorial</button>
+      </div>
       <p className="disclaimer">Stockens provides analytics and education. It is not financial advice; you make the final decisions.</p>
     </div>
   );
@@ -298,16 +301,39 @@ function ReviewView() {
 function Sources() {
   const { tick } = useApp();
   const [st] = usePoll<{ agent: string; lastCycle: number; cycleMs: number; sources: SourceStatus[] }>("/status", [tick]);
-  const [dash] = usePoll<{ agent: { models: { horizon: string; samples: number; oosHitRate: number; oosIc: number }[] } }>("/dashboard", []);
+  const [dash] = usePoll<{
+    agent: { models: { horizon: string; samples: number; oosHitRate: number; oosIc: number }[] };
+    desks: { id: string; name: string; symbols: number; coverage: number; status: string; lastSweepAt?: number }[];
+    coverage: { symbols: number; realHistory: number };
+  }>("/dashboard", [tick]);
   if (!st) return null;
   return (
     <div className="grid">
       <div className="card span-6">
         <h2>Background agent <Tip text="The agent works unseen: it pulls the tracked sites, retrains models, refreshes forecasts and fires alerts. This is the only place it shows itself." /></h2>
         <div className="small">Status: <b>{st.agent}</b> · last cycle {ago(st.lastCycle)} ago ({st.cycleMs} ms)</div>
+        {dash && (
+          <div className="small" style={{ marginTop: 4 }}>
+            Coverage: {dash.coverage.symbols} symbols (S&P 500 + ETFs + crypto) · real price history for <b>{dash.coverage.realHistory}</b>
+            {dash.coverage.realHistory < dash.coverage.symbols ? " (the rest are simulated until they load)" : ""}
+          </div>
+        )}
         <table className="tbl" style={{ marginTop: 8 }}>
           <thead><tr><th>Model</th><th>Samples</th><th>OOS hit</th><th>OOS IC</th></tr></thead>
           <tbody>{dash?.agent.models.map((m) => <tr key={m.horizon}><td>{m.horizon}</td><td>{m.samples}</td><td>{(m.oosHitRate * 100).toFixed(1)}%</td><td>{m.oosIc.toFixed(3)}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="card span-12">
+        <h2>
+          Sector desks <Tip text="Each desk is a background agent that combs its sector's companies for headlines and SEC filings, a couple of names every few seconds, so a full pass over the S&P 500 takes roughly 15–20 minutes." />
+        </h2>
+        <table className="tbl">
+          <thead><tr><th>Desk</th><th>Names</th><th>Real news</th><th>Last full pass</th><th>Status</th></tr></thead>
+          <tbody>
+            {dash?.desks.map((d) => (
+              <tr key={d.id}><td>{d.name}</td><td>{d.symbols}</td><td>{Math.round(d.coverage * 100)}%</td><td>{d.lastSweepAt ? `${ago(d.lastSweepAt)} ago` : "in progress"}</td><td className="muted">{d.status}</td></tr>
+            ))}
+          </tbody>
         </table>
       </div>
       <div className="card span-6">
