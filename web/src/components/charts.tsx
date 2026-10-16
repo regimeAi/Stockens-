@@ -126,6 +126,9 @@ const NAMES: Record<string, string> = {
 export const pretty = (k: string) => NAMES[k] ?? k;
 
 export function EquityChart({ data }: { data: { t: number; equity: number; benchmark: number }[] }) {
+  // Small moves need decimals, or every tick reads "0%".
+  const dev = Math.max(0, ...data.map((x) => Math.max(Math.abs(x.equity - 1), Math.abs(x.benchmark - 1))));
+  const dp = dev < 0.02 ? 2 : dev < 0.1 ? 1 : 0;
   return (
     <div>
       <div className="legend" style={{ marginBottom: 6 }}>
@@ -136,7 +139,7 @@ export function EquityChart({ data }: { data: { t: number; equity: number; bench
         <ComposedChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={day} tickLine={false} axisLine={{ stroke: "var(--axis)" }} minTickGap={50} />
-          <YAxis tickFormatter={(v) => `${((v - 1) * 100).toFixed(0)}%`} tickLine={false} axisLine={false} width={44} domain={["auto", "auto"]} />
+          <YAxis tickFormatter={(v) => `${((v - 1) * 100).toFixed(dp)}%`} tickLine={false} axisLine={false} width={dp ? 52 : 44} domain={["auto", "auto"]} />
           <ReferenceLine y={1} stroke="var(--axis)" />
           <Tooltip content={<TT fmt={(v) => fmtPct((v - 1) * 100, 1)} />} />
           <Line dataKey="equity" name="Strategy" stroke="var(--s1)" strokeWidth={2} dot={false} isAnimationActive={false} />

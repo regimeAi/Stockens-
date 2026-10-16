@@ -229,18 +229,21 @@ describe("forecast anomaly detection", async () => {
 });
 
 describe("S&P 500 universe and news parsing", async () => {
-  const { UNIVERSE, CIK, SP500_META } = await import("../server/data/universe.ts");
+  const { UNIVERSE, CIK, SP500_META, SP500_LIST } = await import("../server/data/universe.ts");
   const { parseFeed, nameMatcher } = await import("../server/data/news.ts");
   const { yahooSymbol } = await import("../server/data/http.ts");
 
-  it("covers every S&P 500 constituent with a GICS sector and SEC id", () => {
+  it("has the full S&P 500 for metadata and a focused popular universe by default", () => {
     expect(SP500_META.count).toBeGreaterThanOrEqual(500);
-    const sp = UNIVERSE.filter((i) => i.themes.includes("sp500"));
-    expect(sp.length).toBe(SP500_META.count);
-    expect(new Set(sp.map((i) => i.sector)).size).toBe(11);
+    expect(new Set(SP500_LIST.map((i) => i.sector)).size).toBe(11);
     expect(CIK.get("AAPL")).toBe(320193);
-    expect(UNIVERSE.find((i) => i.symbol === "NVDA")!.themes).toEqual(expect.arrayContaining(["AI", "semis", "sp500"]));
-    for (const s of ["SPY", "BTC", "TSM"]) expect(UNIVERSE.some((i) => i.symbol === s)).toBe(true);
+    const stocks = UNIVERSE.filter((i) => i.assetClass === "equity");
+    expect(stocks.length).toBeGreaterThan(80);
+    expect(stocks.length).toBeLessThan(130);
+    expect(UNIVERSE.length).toBe(new Set(UNIVERSE.map((i) => i.symbol)).size); // no duplicates
+    expect(UNIVERSE.find((i) => i.symbol === "NVDA")!.themes).toEqual(expect.arrayContaining(["AI", "semis", "popular"]));
+    expect(UNIVERSE.filter((i) => i.themes.includes("ipo")).map((i) => i.symbol)).toEqual(expect.arrayContaining(["RDDT", "ARM", "CRWV"]));
+    for (const s of ["SPY", "TLT", "UUP", "GLD", "USO", "BTC"]) expect(UNIVERSE.some((i) => i.symbol === s)).toBe(true); // models need these
     expect(yahooSymbol("BRK.B")).toBe("BRK-B");
     expect(yahooSymbol("BTC", true)).toBe("BTC-USD");
   });
@@ -255,12 +258,106 @@ describe("S&P 500 universe and news parsing", async () => {
   });
 
   it("routes market-wide headlines to the right companies", () => {
-    const match = nameMatcher(UNIVERSE.filter((i) => i.assetClass === "equity"));
+    const match = nameMatcher(SP500_LIST);
     expect(match("Nvidia shares jump after record quarter")).toContain("NVDA");
     expect(match("JPMorgan Chase raises its dividend")).toContain("JPM");
     expect(match("Fed holds rates steady; $TSLA slips")).toContain("TSLA");
     // Ordinary-word company names need a market cue, so these don't misfire:
     expect(match("Officials target inflation of 2%")).not.toContain("TGT");
     expect(match("Target shares fall on weak guidance")).toContain("TGT");
+  });
+});
+
+describe("paper trading team", async () => {
+  const { TradingTeam, newTeamState, teamStats, nyClock } = await import("../server/team/team.ts");
+  const ctx0 = { breadth: 0.6, rates: 0, dollar: 0, commodities: 0, medianEarningsYield: 0.04 };
+
+  // A steady uptrend with a 3-day pullback at the end: a textbook "dip in a strong stock".
+  function series(start: number, n = 200) {
+    const bars = [];
+    let p = start;
+    for (let i = 0; i < n; i++) {
+      p *= i >= n - 3 ? 0.985 : 1.004;
+      bars.push({ t: i * 86_400_000, o: p, h: p * 1.01, l: p * 0.99, c: p, v: 1e6 });
+    }
+    return bars;
+  }
+  const fc = (symbol: string, price: number, exp = 1.5, conf = 60, probUp = 0.6) =>
+    ({ symbol, price, horizons: [{ horizon: "5d", expectedReturn: exp, confidence: conf, probUp, bandLow: -3, bandHigh: 5, label: "", rationale: "" }] }) as never;
+
+  function setup(extra: Partial<Record<string, unknown>> = {}) {
+    const data = new Map();
+    const forecasts = new Map();
+    for (const [sym, sector, start] of [["AAA", "Tech", 100], ["BBB", "Health", 50], ["SPY", "Index", 500]] as const) {
+      const bars = series(start);
+      data.set(sym, { inst: { symbol: sym, name: sym, assetClass: sym === "SPY" ? "etf" : "equity", sector, themes: [] }, bars, fundamentals: {}, live: true });
+      forecasts.set(sym, fc(sym, bars.at(-1)!.c));
+    }
+    const feed: string[] = [];
+    const host = { data, forecasts, anomalies: [], ctx: ctx0, liveData: true, push: (i: { title: string }) => feed.push(i.title), ...extra };
+    const team = new TradingTeam(newTeamState({ marketHoursOnly: false, startingCash: 10_000 }), host as never, () => {});
+    return { team, data, forecasts, feed, host };
+  }
+
+  it("scouts dips in uptrends, sizes by risk and buys", () => {
+    const { team, feed } = setup();
+    team.step(1_000_000_000_000);
+    const st = team.state;
+    expect(st.positions.map((p) => p.symbol).sort()).toEqual(["AAA", "BBB"]);
+    for (const p of st.positions) {
+      const riskPct = ((p.entry - p.initialStop) * p.qty * 100) / 10_000;
+      expect(riskPct).toBeLessThanOrEqual(0.76); // 0.75% risk per trade (+ slippage rounding)
+      expect((p.qty * p.entry) / 10_000).toBeLessThanOrEqual(0.2001); // max 20% per position
+      expect(p.target).toBeGreaterThan(p.entry);
+    }
+    expect(st.cash).toBeLessThan(10_000);
+    expect(feed.some((t) => t.startsWith("Team bought"))).toBe(true);
+    expect(st.agents.risk.msg).toMatch(/Approved/);
+  });
+
+  it("stops out losers, takes profit on winners and keeps the books straight", () => {
+    const { team, data } = setup();
+    const t0 = 1_000_000_000_000;
+    team.step(t0);
+    const [a, b] = ["AAA", "BBB"].map((s) => team.state.positions.find((p) => p.symbol === s)!);
+    data.get("AAA").bars.at(-1).c = a.stop * 0.99; // gap below the stop
+    data.get("BBB").bars.at(-1).c = b.target * 1.01; // through the target
+    team.step(t0 + 61_000);
+    const reasons = Object.fromEntries(team.state.closed.map((c) => [c.symbol, c]));
+    expect(reasons.AAA.reason).toBe("stop loss");
+    expect(reasons.AAA.pnl).toBeLessThan(0);
+    expect(reasons.BBB.reason).toBe("hit target");
+    expect(reasons.BBB.pnl).toBeGreaterThan(0);
+    const s = teamStats(team.state, team.equityNow(), 0);
+    expect(s.trades).toBe(2);
+    expect(s.winRate).toBe(0.5);
+    expect(team.equityNow()).toBeCloseTo(10_000 + reasons.AAA.pnl + reasons.BBB.pnl, 6);
+  });
+
+  it("rejects trades with earnings ahead or recent anomalies, and pauses after a bad day", () => {
+    const t0 = 1_000_000_000_000;
+    const { team, data, host } = setup({
+      anomalies: [{ id: "x", t: t0 - 60_000, symbol: "BBB", kind: "price-vs-forecast", severity: 2, title: "BBB moving against its forecast", detail: "", metric: 1 }],
+    });
+    data.get("AAA").fundamentals.nextEarnings = t0 + 3 * 86_400_000;
+    team.step(t0);
+    const notes = Object.fromEntries(team.state.proposals.map((p) => [p.symbol, p.note]));
+    expect(notes.AAA).toMatch(/earnings/);
+    expect(notes.BBB).toMatch(/anomaly/);
+    expect(team.state.positions).toHaveLength(0);
+
+    // Force a -3% day: the PM pauses the team until the next trading day.
+    (host as { anomalies: unknown[] }).anomalies = [];
+    team.state.dayStartEquity = 10_000;
+    team.state.cash = 9_650;
+    team.step(t0 + 120_000);
+    expect(team.state.paused).toMatch(/today/);
+    expect(team.state.pauseUntilNextDay).toBe(true);
+  });
+
+  it("knows New York market hours", () => {
+    expect(nyClock(Date.parse("2026-10-14T14:00:00Z")).open).toBe(true); // Wed 10:00 ET
+    expect(nyClock(Date.parse("2026-10-14T21:00:00Z")).open).toBe(false); // Wed 17:00 ET
+    expect(nyClock(Date.parse("2026-10-17T15:00:00Z")).open).toBe(false); // Saturday
   });
 });
