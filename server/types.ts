@@ -139,7 +139,7 @@ export interface SignalCard {
 export interface FeedItem {
   id: string;
   t: number;
-  kind: "upgrade" | "downgrade" | "signal" | "regime" | "news" | "alert" | "crypto";
+  kind: "upgrade" | "downgrade" | "signal" | "regime" | "news" | "alert" | "crypto" | "anomaly";
   symbol?: string;
   title: string;
   body: string;
@@ -190,6 +190,8 @@ export interface Profile {
   extendedHours: boolean;
   risk: RiskSettings;
   notifications: { push: boolean; inApp: boolean; quietHours?: [number, number] };
+  // Forecast-anomaly alerts: which names, and how severe before you're pinged.
+  anomalyAlerts: { enabled: boolean; scope: "watchlists" | "all"; minSeverity: 1 | 2 | 3 };
   broker?: { name: string; exportFormat: "csv" | "json" };
   updatedAt: number;
 }
@@ -304,4 +306,26 @@ export interface LatencyState {
   trades: LatencyTrade[];
   feeds: { binance: string; polymarket: string; tradingview: string; cryptoquant: string };
   evalsPerSec: number;
+}
+
+// ---------------- forecast anomalies ----------------
+export type AnomalyKind =
+  | "forecast-jump" // 5-day forecast moved far outside its own recent range
+  | "confidence-shift" // confidence rose or collapsed quickly
+  | "direction-flip" // forecast flipped from up to down (or back) with conviction
+  | "uncertainty-shock" // confidence band suddenly much wider
+  | "model-split" // the ensemble's models disagree far more than usual
+  | "price-vs-forecast" // price is moving hard against the forecast
+  | "peer-outlier" // forecast stands far apart from comparable assets
+  | "forecast-miss"; // the realised 5-day move landed outside the 80% band
+
+export interface Anomaly {
+  id: string;
+  t: number;
+  symbol: string;
+  kind: AnomalyKind;
+  severity: 1 | 2 | 3; // 1 notable, 2 significant, 3 extreme
+  title: string;
+  detail: string;
+  metric: number; // the z-score / ratio / points behind the call
 }

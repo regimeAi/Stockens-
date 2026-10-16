@@ -125,6 +125,28 @@ integrity checks, so you always know what is real.
 | Risk | `risk.ts` | Position sizing, stop variants, portfolio beta, sector limits, correlation creep, drawdown line, and scenario and historical-analog stress tests. |
 | Psychology | `psychology.ts` | Fear/greed composite, crowd-behavior notes, and the poker read. |
 
+### Forecast anomalies (`server/engine/anomaly.ts`)
+
+The agent keeps a rolling history of every symbol's forecast and flags anything unusual. It
+compares each reading with the symbol's own recent range using robust median/MAD statistics,
+with its peers, and, five days later, with what actually happened:
+
+| Anomaly | Fires when |
+|---|---|
+| Forecast jump | The 5-day forecast is ≥3× outside its normal variation (and moved ≥0.5 points) |
+| Confidence shift | Confidence moves ≥20 points within about an hour |
+| Direction flip | The call flips up↔down with confidence ≥40 |
+| Uncertainty spike | The 80% band is ≥1.5× its usual width |
+| Models disagree | The spread between model votes is ≥4× normal |
+| Price vs forecast | Price moves ≥1 ATR against the call made about an hour earlier |
+| Peer outlier | The forecast is ≥3.5× further from the stocks/ETFs/crypto median than usual |
+| Forecast miss | The real 5-day move landed outside the 80% band; this also drives the calibration stat on Home |
+
+Each anomaly gets a severity (Notable / Significant / Extreme), with a 3-hour cooldown per symbol
+and type. Anomalies appear on Home and on each ticker. Users choose under **Me → Profile →
+Anomaly alerts** whether to be alerted, for which names (their watchlists and positions, or
+everything) and at what minimum severity. Alerts arrive in-app and by push, at most 6 per hour.
+
 The **background agent** (`server/agent/agent.ts`) has no UI of its own. It rotates through
 the tracked sites within their rate limits, retrains every 6 hours, refreshes forecasts every
 `AGENT_INTERVAL_MS`, emits feed events (upgrades, downgrades, signals, regime shifts,

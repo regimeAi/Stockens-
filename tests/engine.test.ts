@@ -172,3 +172,57 @@ describe("DATABASE_URL validation", async () => {
     expect(databaseUrlProblem("postgresql://neondb_owner:secret@ep-x-pooler.c-3.us-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require")).toBeUndefined();
   });
 });
+
+describe("forecast anomaly detection", async () => {
+  const { AnomalyDetector, checkMisses, robustZ, calibration } = await import("../server/engine/anomaly.ts");
+  const fc = (symbol: string, exp: number, conf: number, band: number, price: number, votes = [exp, exp, exp, exp]) =>
+    ({
+      symbol, price,
+      horizons: [{ horizon: "5d", expectedReturn: exp, confidence: conf, bandLow: exp - band / 2, bandHigh: exp + band / 2, probUp: 0.5, label: "", rationale: "" }],
+      modelVotes: votes.map((v) => ({ model: "m", expectedReturn: v, weight: 0.25 })),
+    }) as never;
+
+  it("stays quiet on normal noise", () => {
+    const d = new AnomalyDetector({ sampleMs: 1000, minHistory: 20 });
+    const t0 = 1_000_000_000;
+    let n = 0;
+    for (let i = 0; i < 120; i++) n += d.observe(fc("AAA", 1 + Math.sin(i) * 0.1, 50 + (i % 3), 6, 100 + Math.sin(i) * 0.2), 2, t0 + i * 60_000).length;
+    expect(n).toBe(0);
+  });
+
+  it("flags a forecast jump, a direction flip, an uncertainty spike and models splitting", () => {
+    const d = new AnomalyDetector({ sampleMs: 1000, minHistory: 20 });
+    const t0 = 1_000_000_000;
+    for (let i = 0; i < 60; i++) d.observe(fc("BBB", 1 + (i % 5) * 0.05, 50, 6, 100), 2, t0 + i * 60_000);
+    const found = d.observe(fc("BBB", -3, 62, 14, 100, [-6, -3, 2, 1]), 2, t0 + 61 * 60_000);
+    const kinds = found.map((a) => a.kind).sort();
+    expect(kinds).toEqual(["direction-flip", "forecast-jump", "model-split", "uncertainty-shock"]);
+    expect(found.find((a) => a.kind === "forecast-jump")!.severity).toBe(3);
+    // Cooldown: the same reading a minute later doesn't re-alert.
+    expect(d.observe(fc("BBB", -3, 62, 14, 100, [-6, -3, 2, 1]), 2, t0 + 62 * 60_000)).toHaveLength(0);
+  });
+
+  it("flags price running against the forecast and confidence collapsing", () => {
+    const d = new AnomalyDetector({ sampleMs: 1000, minHistory: 20 });
+    const t0 = 1_000_000_000;
+    for (let i = 0; i < 70; i++) d.observe(fc("CCC", 1.2, 70, 6, 100), 2, t0 + i * 60_000);
+    const found = d.observe(fc("CCC", 1.2, 45, 6, 96.5), 2, t0 + 71 * 60_000); // -3.5% vs a 2% ATR, bullish call
+    expect(found.map((a) => a.kind).sort()).toEqual(["confidence-shift", "price-vs-forecast"]);
+  });
+
+  it("finds peer outliers and forecast misses", () => {
+    const d = new AnomalyDetector();
+    const peers = Array.from({ length: 12 }, (_, i) => fc(`P${i}`, 0.5 + (i % 4) * 0.1, 50, 6, 100));
+    const out = d.peers(new Map([["stocks", [...peers, fc("ODD", 6, 50, 6, 100)]]]));
+    expect(out.map((a) => a.symbol)).toEqual(["ODD"]);
+
+    const bars = Array.from({ length: 10 }, (_, i) => ({ t: i, c: i < 3 ? 100 : 112 }));
+    const { log, misses } = checkMisses(
+      [{ symbol: "M", barT: 2, price: 100, exp: 1, low: -4, high: 6 }, { symbol: "N", barT: 2, price: 100, exp: 1, low: -4, high: 20 }],
+      () => bars,
+    );
+    expect(misses.map((m) => m.symbol)).toEqual(["M"]); // +12% landed above M's band, inside N's
+    expect(calibration(log, Infinity, 0).insideRate).toBe(0.5);
+    expect(robustZ(10, [1, 1, 1, 1], 0.5)).toBe(18);
+  });
+});

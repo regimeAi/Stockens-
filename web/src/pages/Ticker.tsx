@@ -3,6 +3,7 @@ import type { Bar, Forecast, Fundamentals, Instrument, NewsItem, SignalCard } fr
 import { api, ago, cls, fmtPct, fmtPrice, useApp, usePoll } from "../api";
 import { AttributionBars, ForecastChart, HorizonBands } from "../components/charts";
 import { ConfidenceMeter, SideBadge, Tip } from "../components/ui";
+import { AnomalyList, type AnomalyReport } from "../components/anomalies";
 
 interface Detail {
   forecast: Forecast;
@@ -18,6 +19,7 @@ export function Ticker({ symbol }: { symbol: string }) {
   const { tick, boot, setBoot, toast } = useApp();
   const [d] = usePoll<Detail>(`/forecast/${symbol}`, [tick]);
   const [alertLevel, setAlertLevel] = useState("");
+  const [anoms] = usePoll<AnomalyReport>(`/anomalies?symbol=${symbol}`, [tick]);
   if (!d) return <div className="empty">Loading {symbol}…</div>;
   const f = d.forecast;
   const s = d.signal;
@@ -113,6 +115,13 @@ export function Ticker({ symbol }: { symbol: string }) {
             </div>
           ))}
         </div>
+
+        {!!anoms?.anomalies.length && (
+          <div className="card span-12">
+            <h2>Anomalies for {f.symbol}</h2>
+            <AnomalyList items={anoms.anomalies} limit={6} />
+          </div>
+        )}
 
         <div className="card span-6">
           <h2>Recent catalysts & news</h2>

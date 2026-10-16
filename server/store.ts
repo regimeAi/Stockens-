@@ -3,6 +3,7 @@ import path from "node:path";
 import pg from "pg";
 import { config } from "./config.ts";
 import type { AlertRule, Position, Profile, SignalCard, StrategyConfig, Watchlist } from "./types.ts";
+import type { ForecastLogEntry } from "./engine/anomaly.ts";
 
 // Persistence. Each buyer has an account plus their own data (profile, watchlists, alerts…);
 // the agent's signal ledger and reviews are global. Everything lives in a tiny key-value
@@ -74,6 +75,7 @@ export interface UserData {
 
 export interface GlobalData {
   ledger: LedgerEntry[];
+  forecastLog?: ForecastLogEntry[]; // one 5-day forecast per symbol per day, checked 5 bars later
   reviews: Review[];
   vapid?: { publicKey: string; privateKey: string };
   sessionSecret?: string;
@@ -101,6 +103,7 @@ export const DEFAULT_PROFILE: Profile = {
     timeStopDays: 10,
   },
   notifications: { push: false, inApp: true },
+  anomalyAlerts: { enabled: true, scope: "watchlists", minSeverity: 2 },
   broker: { name: "Export only", exportFormat: "csv" },
   updatedAt: Date.now(),
 };
