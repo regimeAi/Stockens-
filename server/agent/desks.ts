@@ -1,6 +1,6 @@
 import type { Forecast, Instrument, NewsItem } from "../types.ts";
 import { CIK } from "../data/universe.ts";
-import { macroHeadlines, nameMatcher, secFilings, yahooHeadlines } from "../data/news.ts";
+import { cikFor, macroHeadlines, nameMatcher, secFilings, yahooHeadlines } from "../data/news.ts";
 import type { PolygonSource } from "../data/sources.ts";
 import { scoreHeadline } from "../engine/sentiment.ts";
 import { config } from "../config.ts";
@@ -79,7 +79,7 @@ export class SectorDesk {
     } catch {
       this.errors++;
     }
-    const cik = CIK.get(inst.symbol);
+    const cik = inst.assetClass === "equity" ? (CIK.get(inst.symbol) ?? (await cikFor(inst.symbol))) : undefined;
     if (cik && Date.now() - (this.filingsAt.get(inst.symbol) ?? 0) > 6 * 3600_000) {
       this.filingsAt.set(inst.symbol, Date.now());
       try {

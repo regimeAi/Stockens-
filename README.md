@@ -159,11 +159,19 @@ is broadcast to every other open device.
 
 ## Market coverage and real data
 
-**Universe.** The app covers every **S&P 500** constituent (503 companies, with official GICS
-sector, sub-industry and SEC CIK, bundled in `server/data/sp500.json` from
-[datasets/s-and-p-500-companies](https://github.com/datasets/s-and-p-500-companies)), plus key ETFs
-and macro gauges, and BTC and the large memecoins. `UNIVERSE=focus` switches back to about 55
-curated names.
+**Universe.** By default the app follows about **100 popular, liquid stocks**:
+- mega-cap and AI leaders, cloud and cyber names, consumer internet and fintech, and household blue chips;
+- **recent tech IPOs** (Reddit, Arm, CoreWeave, Circle, Figma, Astera Labs, Rubrik…), the closest
+  public equivalent to buying startups;
+- plus the ETFs and macro gauges the models need, and BTC/ETH/SOL/DOGE.
+
+Other settings:
+- `UNIVERSE=sp500` covers all 503 S&P 500 companies. Official GICS sectors and SEC CIKs are bundled in
+  `server/data/sp500.json`, from
+  [datasets/s-and-p-500-companies](https://github.com/datasets/s-and-p-500-companies).
+- `UNIVERSE=focus` switches to the original curated list.
+
+Companies outside the S&P list get their SEC ID from SEC's official ticker directory.
 
 **Sources, all failing soft to the simulator:**
 
@@ -190,6 +198,26 @@ model's windows are cached, cycles never overlap, and the loop yields to keep th
 responsive. Memory stays around 355 MB with `NODE_OPTIONS=--max-old-space-size=256`. On Render's
 free 0.1-CPU instance, expect cycles of 10–20 seconds; the $7 Starter plan (0.5 CPU) is
 recommended.
+
+## Paper trading team (`server/team/team.ts`)
+
+Four background agents run a **built-in practice account** with pretend money. When live data
+is connected, they use real prices. Style: **buy dips in strong stocks and sell quickly** (swing
+trades of 1–5 trading days, long only).
+
+| Agent | Job |
+|---|---|
+| **Scout** | Scans every stock each minute for a dip (or a volume breakout) in a stock that's in an uptrend and whose 5-day forecast is ≥ +0.4% with enough confidence. It proposes the top 3. |
+| **Risk Manager** | Rejects ideas that break the rules: team paused, position limit reached, reward:risk below the minimum, **earnings inside the holding window**, a recent serious anomaly, sector over its limit, or no live price. Otherwise it sizes the trade so a stop-out costs `riskPerTradePct` of equity, capped per stock and by cash (fractional shares above $20). |
+| **Trader** | Fills at the price plus slippage and fees. On every cycle it moves the stop to breakeven at +1R, trails one ATR below the high from +1.5R, and sells on stop, target, **time exit** (default 5 days) or a forecast that turns negative. |
+| **Portfolio Manager** | Marks to market, records the equity curve against SPY, and tracks win rate, average win/loss, profit factor, drawdown and fees. It writes a daily report after the close, **pauses for the day** after a 2% daily loss and **pauses until you resume** after an 8% drawdown. |
+
+Trading happens only during New York market hours (9:30–4:00 ET; exchange holidays aren't
+modelled) unless the rule is switched off, which is the default in offline simulation mode. The
+**Team** tab shows everything: the scoreboard against SPY, what each agent is doing, open
+positions, every proposal with its approve/reject reason, and closed trades. The owner
+(`ADMIN_EMAILS`) can pause, resume, edit the rules or start over. **No real money moves**; the
+point is to measure whether the strategy is profitable before risking any.
 
 ## First-run tutorial
 

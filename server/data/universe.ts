@@ -6,7 +6,8 @@ import sp500 from "./sp500.json" with { type: "json" };
 // ETFs/macro gauges and BTC + large memecoins. Hand-curated entries below add AI-economy
 // themes and betas on top; every other name gets themes from its sub-industry.
 //
-// UNIVERSE=focus limits coverage to the curated list (lighter on small servers).
+// Default (UNIVERSE=popular): ~100 popular names + recent tech IPOs. UNIVERSE=sp500 covers
+// the whole index; UNIVERSE=focus the original curated list.
 
 const eq = (symbol: string, name: string, sector: string, themes: string[], beta = 1, dividendYield = 0): Instrument => ({
   symbol, name, assetClass: "equity", sector, themes, beta, dividendYield,
@@ -140,11 +141,81 @@ const SP500: (Instrument & { subIndustry: string; cik?: number })[] = (sp500.con
 const inSp = new Set(SP500.map((i) => i.symbol));
 
 export const SP500_META = { source: sp500.source, fetched: sp500.fetched, count: SP500.length };
+export const SP500_LIST: Instrument[] = SP500;
 
+// The default coverage: popular, liquid names people actually trade, recent tech IPOs (the
+// closest thing to buying startups), plus a few ETFs/macro gauges the models need and crypto.
+// Ordered roughly by theme. Names outside the S&P 500 carry their own sector/themes here.
+const POPULAR: (string | [symbol: string, name: string, sector: string, themes: string[], beta?: number])[] = [
+  // Mega-cap & AI leaders
+  "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "ORCL", "AMD", "NFLX", "ADBE", "CRM",
+  "INTC", "QCOM", "MU", "DELL", "SMCI", "ANET", "VRT", "CEG", "VST",
+  ["TSM", "Taiwan Semiconductor", "Information Technology", ["semis", "AI", "compute"], 1.2],
+  ["ASML", "ASML Holding", "Information Technology", ["semis", "AI"], 1.2],
+  ["ARM", "Arm Holdings", "Information Technology", ["semis", "AI", "ipo"], 1.8],
+  // Cloud, data & cyber
+  "PANW", "CRWD", "DDOG", "PLTR", "APP",
+  ["ZS", "Zscaler", "Information Technology", ["cyber", "cloud"], 1.4],
+  ["NET", "Cloudflare", "Information Technology", ["cloud", "cyber"], 1.6],
+  ["SNOW", "Snowflake", "Information Technology", ["cloud", "data", "AI"], 1.6],
+  ["MDB", "MongoDB", "Information Technology", ["cloud", "data"], 1.6],
+  ["TTD", "The Trade Desk", "Communication Services", ["adtech"], 1.6],
+  // Recent IPOs / startup-stage public companies
+  ["RDDT", "Reddit", "Communication Services", ["ipo", "media", "AI"], 2.0],
+  ["CRWV", "CoreWeave", "Information Technology", ["ipo", "AI", "compute"], 2.5],
+  ["CRCL", "Circle Internet", "Financials", ["ipo", "fintech", "crypto"], 2.5],
+  ["FIG", "Figma", "Information Technology", ["ipo", "SaaS", "design"], 2.0],
+  ["ALAB", "Astera Labs", "Information Technology", ["ipo", "semis", "AI"], 2.2],
+  ["RBRK", "Rubrik", "Information Technology", ["ipo", "cyber", "cloud"], 1.8],
+  ["KVYO", "Klaviyo", "Information Technology", ["ipo", "SaaS"], 1.7],
+  ["CART", "Instacart (Maplebear)", "Consumer Staples", ["ipo", "e-com"], 1.3],
+  ["CAVA", "Cava Group", "Consumer Discretionary", ["ipo", "consumer"], 1.6],
+  ["DUOL", "Duolingo", "Consumer Discretionary", ["AI", "edtech"], 1.5],
+  ["TOST", "Toast", "Financials", ["fintech", "SaaS"], 1.6],
+  ["RKLB", "Rocket Lab", "Industrials", ["space"], 2.2],
+  ["IONQ", "IonQ", "Information Technology", ["quantum"], 2.6],
+  ["OKLO", "Oklo", "Utilities", ["nuclear", "AI", "power"], 2.6],
+  ["SOUN", "SoundHound AI", "Information Technology", ["AI"], 2.6],
+  // Consumer internet & fintech
+  "UBER", "ABNB", "DASH", "COIN", "HOOD", "PYPL", "XYZ",
+  ["SHOP", "Shopify", "Information Technology", ["e-com", "SaaS"], 1.8],
+  ["SPOT", "Spotify", "Communication Services", ["media"], 1.4],
+  ["RBLX", "Roblox", "Communication Services", ["gaming", "media"], 1.7],
+  ["PINS", "Pinterest", "Communication Services", ["media", "adtech"], 1.3],
+  ["SNAP", "Snap", "Communication Services", ["media"], 1.8],
+  ["SOFI", "SoFi Technologies", "Financials", ["fintech"], 1.9],
+  ["AFRM", "Affirm", "Financials", ["fintech"], 2.4],
+  ["NU", "Nu Holdings", "Financials", ["fintech"], 1.5],
+  ["MSTR", "Strategy (MicroStrategy)", "Information Technology", ["crypto", "btc"], 3.0],
+  // EV & autos
+  "F", "GM", ["RIVN", "Rivian", "Consumer Discretionary", ["EV"], 2.2],
+  // Blue chips people know
+  "JPM", "BAC", "GS", "V", "MA", "BRK.B", "WMT", "COST", "HD", "MCD", "SBUX", "NKE", "KO", "PEP", "DIS",
+  "LLY", "UNH", "JNJ", "PFE", "MRNA", "XOM", "CVX", "BA", "CAT", "GE", "T", "VZ",
+  ["NVO", "Novo Nordisk", "Health Care", ["pharma", "GLP-1"], 0.7],
+];
+// ETFs and macro gauges the models use for context, plus crypto.
+const SUPPORT = ["SPY", "QQQ", "SMH", "IGV", "XBI", "TLT", "UUP", "GLD", "USO", "BTC", "ETH", "SOL", "DOGE"];
+
+const spBySymbol = new Map(SP500.map((i) => [i.symbol, i]));
+const popular: Instrument[] = POPULAR.map((p) => {
+  if (typeof p === "string") {
+    const sp = spBySymbol.get(p);
+    if (!sp) throw new Error(`POPULAR: ${p} isn't in the S&P list; give it a name/sector`);
+    const { subIndustry: _s, cik: _c, ...inst } = sp;
+    return { ...inst, themes: inst.themes.filter((t) => t !== "sp500").concat("popular") };
+  }
+  const [symbol, name, sector, themes, beta = 1.5] = p;
+  return { symbol, name, assetClass: "equity", sector, themes: [...themes, "popular"], beta, dividendYield: 0 };
+});
+
+const mode = (process.env.UNIVERSE ?? "popular").toLowerCase();
 export const UNIVERSE: Instrument[] =
-  process.env.UNIVERSE === "focus"
-    ? CURATED
-    : [...SP500, ...CURATED.filter((i) => !inSp.has(i.symbol))]; // non-S&P curated names (TSM, ETFs, crypto) stay
+  mode === "sp500"
+    ? [...SP500, ...CURATED.filter((i) => !inSp.has(i.symbol))]
+    : mode === "focus"
+      ? CURATED
+      : [...popular, ...CURATED.filter((i) => SUPPORT.includes(i.symbol))];
 
 export const CIK = new Map<string, number>(SP500.filter((i) => i.cik).map((i) => [i.symbol, i.cik!]));
 export const SUB_INDUSTRY = new Map<string, string>(SP500.map((i) => [i.symbol, i.subIndustry]));

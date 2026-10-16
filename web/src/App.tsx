@@ -9,11 +9,13 @@ import { StrategyLab } from "./pages/StrategyLab";
 import { Risk } from "./pages/Risk";
 import { Crypto, type CryptoMsg } from "./pages/Crypto";
 import { Profile } from "./pages/Profile";
+import { Team } from "./pages/Team";
 import { Login, Paywall, ResetPassword, type SessionInfo } from "./pages/Login";
 import { Tour } from "./components/Tour";
 
 const TABS = [
   { id: "home", label: "Home", icon: Icon.home, title: "Today" },
+  { id: "team", label: "Team", icon: Icon.team, title: "Trading Team" },
   { id: "watch", label: "Watchlists", icon: Icon.list, title: "Watchlists" },
   { id: "lab", label: "Lab", icon: Icon.lab, title: "Strategy Lab" },
   { id: "risk", label: "Risk", icon: Icon.shield, title: "Risk" },
@@ -124,6 +126,7 @@ export function App() {
         </header>
         <main>
           {route.tab === "home" && <Dashboard />}
+          {route.tab === "team" && <Team />}
           {route.tab === "watch" && <Watchlists />}
           {route.tab === "lab" && <StrategyLab />}
           {route.tab === "risk" && <Risk />}

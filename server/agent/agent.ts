@@ -6,6 +6,7 @@ import { MarketSimulator } from "../data/simulator.ts";
 import { FinvizSource, HistorySource, JsonSiteSource, PolygonSource } from "../data/sources.ts";
 import { type DeskBrief, MacroDesk, SectorDesk } from "./desks.ts";
 import { secHealth } from "../data/news.ts";
+import { DEFAULT_TEAM_SETTINGS, TradingTeam, newTeamState } from "../team/team.ts";
 import { type MarketContext, computeFeatures } from "../engine/features.ts";
 import { type SymbolData, type TrainedModel, forecast, trainModels } from "../engine/ensemble.ts";
 import { detectRegime } from "../engine/regime.ts";
@@ -33,6 +34,7 @@ export class Agent extends EventEmitter {
   desks: SectorDesk[] = [];
   macro: MacroDesk;
   historyLoaded = 0;
+  team?: TradingTeam;
   private quoteCursor = 0;
   data = new Map<string, SymbolData>();
   news = new Map<string, NewsItem[]>();
@@ -99,7 +101,24 @@ export class Agent extends EventEmitter {
     ];
   }
 
+  // The four-agent paper-trading team. Its books live in the database.
+  private startTeam() {
+    const saved = store.global.team;
+    const state = saved ? { ...saved, settings: { ...DEFAULT_TEAM_SETTINGS, ...saved.settings } } : newTeamState({ marketHoursOnly: config.liveData });
+    const agent = this;
+    const host = {
+      get data() { return agent.data; },
+      get forecasts() { return agent.forecasts; },
+      get anomalies() { return agent.anomalies; },
+      get ctx() { return agent.ctx; },
+      liveData: config.liveData,
+      push: (item: Omit<FeedItem, "id" | "t">) => agent.push(item),
+    };
+    this.team = new TradingTeam(state, host, (s) => store.updateGlobal("team", () => s));
+  }
+
   async start() {
+    this.startTeam();
     // Start on whatever we have (simulated until real history arrives), so the app is usable
     // immediately; real history streams in behind it and the models retrain once it lands.
     this.refreshContext();
@@ -353,6 +372,11 @@ export class Agent extends EventEmitter {
     this.scanAnomalies();
     this.checkAlerts();
     this.updateLedger();
+    try {
+      this.team?.step();
+    } catch (e) {
+      console.error("team step failed:", (e as Error).message);
+    }
     this.lastCycle = Date.now();
     this.cycleMs = this.lastCycle - t0;
     this.emit("cycle");

@@ -15,6 +15,7 @@ import { initPush, sendPush, vapidPublicKey } from "./push.ts";
 import type { AlertRule, Anomaly, SignalCard, StrategyConfig, Watchlist } from "./types.ts";
 import { accountFor, authMode, authRoutes, hasAccess, requireAccess, stripeWebhook } from "./auth.ts";
 import { toSignal } from "./engine/signals.ts";
+import { DEFAULT_TEAM_SETTINGS, newTeamState, nyClock, teamStats, type TeamSettings } from "./team/team.ts";
 
 const app = express();
 // Behind a hosting proxy (Render, Fly, etc.) so req.secure / req.ip reflect the real client.
@@ -228,6 +229,71 @@ api.get("/risk/portfolio", ready, (_req, res) => {
     return { ...p, price: f?.price ?? 0, pnlPct: f ? (f.price / p.avgPrice - 1) * 100 : 0, value: (f?.price ?? 0) * p.qty, signal: personalSignal(res, p.symbol)?.side ?? "hold" };
   });
   res.json({ ...pv, rows, scenarios: SCENARIOS.map((s) => runScenario(u.positions, agent.barsMap(), insts, s)) });
+});
+
+// ---- Paper-trading team ----
+api.get("/team", (_req, res) => {
+  const team = agent.team;
+  if (!team) return res.status(503).json({ error: "Team is starting" });
+  const st = team.state;
+  const px = (s: string) => agent.data.get(s)?.bars.at(-1)?.c;
+  const eq = team.equityNow();
+  res.json({
+    settings: st.settings,
+    startedAt: st.startedAt,
+    cash: st.cash,
+    paused: st.paused,
+    agents: st.agents,
+    marketOpen: nyClock().open,
+    stats: teamStats(st, eq, px("SPY")),
+    positions: st.positions.map((p) => {
+      const now = px(p.symbol) ?? p.entry;
+      return { ...p, price: now, value: p.qty * now, pnl: p.qty * (now - p.entry), pnlPct: (now / p.entry - 1) * 100 };
+    }),
+    closed: st.closed.slice(0, 100),
+    proposals: st.proposals.slice(0, 60),
+    equity: st.equity.slice(-1500),
+    canManage: !!res.locals.admin,
+  });
+});
+const ownerOnly = (_req: express.Request, res: express.Response, next: express.NextFunction) =>
+  res.locals.admin ? next() : res.status(403).json({ error: "Only the owner can manage the team." });
+api.post("/team/pause", ownerOnly, (_req, res) => {
+  const t = agent.team!;
+  t.state.paused = "paused by the owner";
+  t.state.pauseUntilNextDay = false;
+  store.updateGlobal("team", () => t.state);
+  res.json({ ok: true });
+});
+api.post("/team/resume", ownerOnly, (_req, res) => {
+  const t = agent.team!;
+  t.state.paused = null;
+  t.state.pauseUntilNextDay = false;
+  t.state.peak = t.equityNow(); // restart the drawdown clock from here
+  store.updateGlobal("team", () => t.state);
+  res.json({ ok: true });
+});
+api.put("/team/settings", ownerOnly, (req, res) => {
+  const t = agent.team!;
+  const limits: Partial<Record<keyof TeamSettings, [number, number]>> = {
+    riskPerTradePct: [0.1, 3], maxPositions: [1, 15], maxPositionPct: [5, 50], maxSectorPct: [10, 100], stopAtr: [0.5, 5],
+    minRewardRisk: [0.5, 5], maxHoldDays: [1, 20], dailyLossLimitPct: [0.5, 10], drawdownPausePct: [2, 30], slippageBps: [0, 100],
+    feePerTrade: [0, 20], minConfidence: [0, 90],
+  };
+  for (const [k, [lo, hi]] of Object.entries(limits) as [keyof TeamSettings, [number, number]][]) {
+    const v = Number(req.body?.[k]);
+    if (req.body?.[k] !== undefined && Number.isFinite(v)) (t.state.settings[k] as number) = Math.min(hi, Math.max(lo, v));
+  }
+  if (typeof req.body?.marketHoursOnly === "boolean") t.state.settings.marketHoursOnly = req.body.marketHoursOnly;
+  store.updateGlobal("team", () => t.state);
+  res.json(t.state.settings);
+});
+api.post("/team/reset", ownerOnly, (req, res) => {
+  const t = agent.team!;
+  const cash = Math.min(10_000_000, Math.max(1000, Number(req.body?.startingCash) || t.state.settings.startingCash || DEFAULT_TEAM_SETTINGS.startingCash));
+  t.state = newTeamState({ ...t.state.settings, startingCash: cash });
+  store.updateGlobal("team", () => t.state);
+  res.json({ ok: true });
 });
 
 api.get("/anomalies", (req, res) => res.json(agent.anomalyReport(typeof req.query.symbol === "string" ? req.query.symbol : undefined)));

@@ -151,3 +151,15 @@ export async function macroHeadlines(feeds: string[]): Promise<{ feed: string; i
     }),
   );
 }
+
+// SEC's ticker → CIK directory, for companies outside the bundled S&P list (recent IPOs, ADRs).
+let tickerCik: Promise<Map<string, number>> | undefined;
+export function cikFor(symbol: string): Promise<number | undefined> {
+  tickerCik ??= fetchJson<Record<string, { ticker: string; cik_str: number }>>("https://www.sec.gov/files/company_tickers.json", { "user-agent": config.secUserAgent })
+    .then((j) => new Map(Object.values(j).map((r) => [r.ticker.toUpperCase().replace(/-/g, "."), r.cik_str])))
+    .catch((e) => {
+      tickerCik = undefined; // retry on a later call
+      throw e;
+    });
+  return tickerCik.then((m) => m.get(symbol.toUpperCase())).catch(() => undefined);
+}
