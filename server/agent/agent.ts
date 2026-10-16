@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { config } from "../config.ts";
-import type { AlertRule, Bar, FeedItem, Forecast, Fundamentals, NewsItem, SignalCard, SourceStatus, StrategyConfig } from "../types.ts";
+import type { AlertRule, Anomaly, Bar, FeedItem, Forecast, Fundamentals, NewsItem, SignalCard, SourceStatus, StrategyConfig } from "../types.ts";
 import { MACRO_PROXIES, UNIVERSE, instrument } from "../data/universe.ts";
 import { MarketSimulator } from "../data/simulator.ts";
 import { FinvizSource, HistorySource, JsonSiteSource } from "../data/sources.ts";
@@ -11,7 +11,8 @@ import { summarize } from "../engine/sentiment.ts";
 import { type SignalRuleStats, toSignal } from "../engine/signals.ts";
 import { DEFAULT_RISK, TEMPLATES, backtest } from "../engine/backtest.ts";
 import { psychologyGauge } from "../engine/psychology.ts";
-import { sma, uid } from "../engine/indicators.ts";
+import { atr, sma, uid } from "../engine/indicators.ts";
+import { AnomalyDetector, calibration, checkMisses } from "../engine/anomaly.ts";
 import { DEFAULT_PLAYBOOKS, DEFAULT_PROFILE, store, type Review } from "../store.ts";
 import type { LatencyEngine } from "../crypto/latencyArb.ts";
 
@@ -34,6 +35,8 @@ export class Agent extends EventEmitter {
   feed: FeedItem[] = [];
   models: TrainedModel[] = [];
   ruleStats: Record<string, SignalRuleStats> = {};
+  detector = new AnomalyDetector({ sampleMs: config.anomaly.sampleMs, minHistory: config.anomaly.minHistory });
+  anomalies: Anomaly[] = [];
   ctx: MarketContext = { breadth: 0.5, rates: 0, dollar: 0, commodities: 0, medianEarningsYield: 0.04 };
   lastCycle = 0;
   cycleMs = 0;
@@ -221,7 +224,9 @@ export class Agent extends EventEmitter {
       const prevSig = this.signals.get(sym);
       this.signals.set(sym, sig);
       this.diff(prev, f, prevSig, sig);
+      for (const a of this.detector.observe(f, (atr(d.bars, 14) / f.price) * 100)) this.recordAnomaly(a);
     }
+    this.scanAnomalies();
     this.checkAlerts();
     this.updateLedger();
     this.lastCycle = Date.now();
@@ -248,6 +253,44 @@ export class Agent extends EventEmitter {
       for (const [uid, u] of store.users)
         for (const a of u.alerts.filter((x) => x.enabled && x.kind === "sentiment-flip" && x.symbol === f.symbol)) this.fire(uid, a, `${f.symbol} sentiment flipped to ${f.sentiment.score.toFixed(2)}`);
     }
+  }
+
+  // Cross-symbol anomaly checks: peer outliers, plus the daily forecast log and its misses.
+  private scanAnomalies() {
+    const groups = new Map<string, Forecast[]>();
+    for (const f of this.forecasts.values()) {
+      const cls = this.data.get(f.symbol)!.inst.assetClass;
+      const name = cls === "crypto" ? "crypto" : cls === "etf" ? "ETFs" : "stocks";
+      groups.set(name, [...(groups.get(name) ?? []), f]);
+    }
+    for (const a of this.detector.peers(groups)) this.recordAnomaly(a);
+
+    let log = store.global.forecastLog ?? [];
+    let changed = false;
+    for (const f of this.forecasts.values()) {
+      const barT = this.data.get(f.symbol)!.bars.at(-1)!.t;
+      if (log.some((e) => e.symbol === f.symbol && e.barT === barT)) continue;
+      const h = f.horizons.find((x) => x.horizon === "5d")!;
+      log.push({ symbol: f.symbol, barT, price: f.price, exp: h.expectedReturn, low: h.bandLow, high: h.bandHigh });
+      changed = true;
+    }
+    const res = checkMisses(log, (s) => this.data.get(s)?.bars);
+    if (res.misses.length || changed || res.log.some((e, i) => e !== log[i])) {
+      log = res.log.slice(-3000);
+      store.updateGlobal("forecastLog", () => log);
+    }
+    for (const m of res.misses) this.recordAnomaly({ ...m, id: uid("an_") });
+  }
+
+  private recordAnomaly(a: Anomaly) {
+    this.anomalies = [a, ...this.anomalies].slice(0, 300);
+    this.push({ kind: "anomaly", symbol: a.symbol, title: a.title, body: a.detail });
+    this.emit("anomaly", a);
+  }
+
+  anomalyReport(symbol?: string) {
+    const list = symbol ? this.anomalies.filter((a) => a.symbol === symbol.toUpperCase()) : this.anomalies;
+    return { anomalies: list.slice(0, 100), calibration: calibration(store.global.forecastLog ?? []) };
   }
 
   private fireSignalAlerts(sig: SignalCard) {

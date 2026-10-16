@@ -168,6 +168,7 @@ table.tbl tr.click { cursor: pointer; }
 .bar-fill { height: 100%; border-radius: 4px; }
 .feed-item { padding: 10px 0; border-bottom: 1px solid var(--grid); }
 .feed-item:last-child { border-bottom: 0; }
+.status-info::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--s1); }
 .status-good::before, .status-warn::before, .status-crit::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .status-good::before { background: var(--good); } .status-warn::before { background: var(--warn); } .status-crit::before { background: var(--crit); }
 .empty { padding: 20px; text-align: center; color: var(--muted); font-size: 14px; }

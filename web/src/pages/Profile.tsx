@@ -92,6 +92,34 @@ export function Profile() {
             <h2 style={{ marginTop: 16 }}>Notifications</h2>
             <label className="switch">In-app alerts<input type="checkbox" checked={p.notifications.inApp} onChange={(e) => save({ notifications: { inApp: e.target.checked } })} /></label>
             <PushToggle />
+            <h2 style={{ marginTop: 16 }}>
+              Anomaly alerts <Tip text="Get pinged when the agent spots an unusual forecast: a sudden jump, a confidence swing, a flip in direction, an uncertainty spike, models disagreeing, price moving against the call, or a real move outside the forecast range." />
+            </h2>
+            <label className="switch">Alert me about forecast anomalies<input type="checkbox" checked={p.anomalyAlerts?.enabled ?? true} onChange={(e) => save({ anomalyAlerts: { ...anomalyPrefs(p), enabled: e.target.checked } })} /></label>
+            <label className="lbl">Which names</label>
+            <div className="chips">
+              {(
+                [
+                  ["watchlists", "My watchlists & positions"],
+                  ["all", "Everything"],
+                ] as const
+              ).map(([k, l]) => (
+                <button key={k} className={`chip ${anomalyPrefs(p).scope === k ? "on" : ""}`} onClick={() => save({ anomalyAlerts: { ...anomalyPrefs(p), scope: k } })}>{l}</button>
+              ))}
+            </div>
+            <label className="lbl">Only when at least</label>
+            <div className="chips">
+              {(
+                [
+                  [1, "Notable"],
+                  [2, "Significant"],
+                  [3, "Extreme"],
+                ] as const
+              ).map(([k, l]) => (
+                <button key={k} className={`chip ${anomalyPrefs(p).minSeverity === k ? "on" : ""}`} onClick={() => save({ anomalyAlerts: { ...anomalyPrefs(p), minSeverity: k } })}>{l}</button>
+              ))}
+            </div>
+            <div className="tiny muted" style={{ marginTop: 4 }}>At most 6 anomaly alerts an hour. Turn on push above to get them when the app is closed.</div>
             <h2 style={{ marginTop: 16 }}>Broker</h2>
             <div className="small ink2">Signals export as CSV/JSON for your broker. Direct order routing is not enabled — you approve and place every trade.</div>
             <div className="row" style={{ marginTop: 8 }}>
@@ -110,6 +138,8 @@ export function Profile() {
     </div>
   );
 }
+
+const anomalyPrefs = (p: P) => p.anomalyAlerts ?? { enabled: true, scope: "watchlists" as const, minSeverity: 2 as const };
 
 function AccountBox() {
   const { boot, toast } = useApp();

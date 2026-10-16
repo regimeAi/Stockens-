@@ -22,6 +22,10 @@ export const config = {
   // When false the agent never touches the network and runs fully on the simulator.
   liveData: bool("LIVE_DATA", true),
   agentIntervalMs: num("AGENT_INTERVAL_MS", 15_000),
+  anomaly: {
+    sampleMs: num("ANOMALY_SAMPLE_MS", 60_000), // one baseline point per symbol per minute
+    minHistory: num("ANOMALY_MIN_HISTORY", 20), // ~20 minutes of history before most checks fire
+  },
 
   finviz: {
     // Finviz Elite export token. Without it the adapter reads the public quote page,

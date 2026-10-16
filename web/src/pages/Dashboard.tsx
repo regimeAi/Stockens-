@@ -2,6 +2,7 @@ import type { FeedItem, Forecast, HorizonForecast, Regime, SignalCard, SourceSta
 import { ago, cls, fmtPct, fmtPrice, useApp, usePoll } from "../api";
 import { ConfidenceMeter, SideBadge, Tip } from "../components/ui";
 import { NewsHeatmap } from "../components/viz";
+import { AnomaliesCard } from "../components/anomalies";
 
 export interface DashboardData {
   updatedAt: number;
@@ -44,6 +45,10 @@ export function Dashboard() {
             <b>How to use this:</b> 1) <b>Scan</b> the best 5-day ideas below → 2) tap one to <b>validate</b> the forecast and what drives it → 3) <b>decide</b> with the Signal Card's entry, stop and size → 4) <b>automate</b> with a watchlist + alerts → 5) <b>review</b> the end-of-day summary in Me.
           </div>
         )}
+      </div>
+
+      <div className="card span-12">
+        <AnomaliesCard />
       </div>
 
       <div className="card span-6">

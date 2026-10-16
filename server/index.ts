@@ -12,7 +12,7 @@ import { DEFAULT_RISK, MAX_PARAMS, TEMPLATES, backtest } from "./engine/backtest
 import { SCENARIOS, portfolioView, runScenario, sizePosition, stops } from "./engine/risk.ts";
 import { atr, uid } from "./engine/indicators.ts";
 import { initPush, sendPush, vapidPublicKey } from "./push.ts";
-import type { AlertRule, SignalCard, StrategyConfig, Watchlist } from "./types.ts";
+import type { AlertRule, Anomaly, SignalCard, StrategyConfig, Watchlist } from "./types.ts";
 import { accountFor, authMode, authRoutes, hasAccess, requireAccess, stripeWebhook } from "./auth.ts";
 import { toSignal } from "./engine/signals.ts";
 
@@ -50,6 +50,25 @@ agent.on("cycle", () => broadcast("cycle", { t: agent.lastCycle }));
 agent.on("alert", ({ uid, title, body }: { uid: string; title: string; body: string }) => {
   sendTo(uid, "alert", { title, body });
   void sendPush(uid, { title, body });
+});
+// Forecast anomalies → each user who opted in, filtered by their scope and minimum severity,
+// capped at 6 per hour per user so a volatile day can't flood their phone.
+const anomalyQuota = new Map<string, number[]>();
+const SEVERITY = ["", "Notable", "Significant", "Extreme"];
+agent.on("anomaly", (a: Anomaly) => {
+  for (const [uid, u] of store.users) {
+    if (!hasAccess(store.accounts.get(uid))) continue;
+    const pref = u.profile.anomalyAlerts ?? { enabled: true, scope: "watchlists", minSeverity: 2 };
+    if (!pref.enabled || a.severity < pref.minSeverity) continue;
+    const watched = u.watchlists.some((w) => w.symbols.includes(a.symbol)) || u.positions.some((p) => p.symbol === a.symbol);
+    if (pref.scope === "watchlists" && !watched) continue;
+    const recent = (anomalyQuota.get(uid) ?? []).filter((t) => Date.now() - t < 3600_000);
+    if (recent.length >= 6) continue;
+    anomalyQuota.set(uid, [...recent, Date.now()]);
+    const title = `⚠️ ${SEVERITY[a.severity]} anomaly · ${a.symbol}`;
+    sendTo(uid, "alert", { title, body: a.title });
+    void sendPush(uid, { title, body: `${a.title}. ${a.detail}`, url: `/#/home/${a.symbol}` });
+  }
 });
 crypto.on("state", () => broadcast("crypto", { state: crypto.publicState(), graph: crypto.graph.snapshot }));
 crypto.on("trade", (t) => broadcast("crypto-trade", t));
@@ -211,6 +230,7 @@ api.get("/risk/portfolio", ready, (_req, res) => {
   res.json({ ...pv, rows, scenarios: SCENARIOS.map((s) => runScenario(u.positions, agent.barsMap(), insts, s)) });
 });
 
+api.get("/anomalies", (req, res) => res.json(agent.anomalyReport(typeof req.query.symbol === "string" ? req.query.symbol : undefined)));
 api.get("/review", (_req, res) => res.json(store.global.reviews));
 api.post("/review/run", ready, (_req, res) => res.json(agent.runReview()));
 api.get("/ledger", (_req, res) => res.json(store.global.ledger.slice(0, 200)));
