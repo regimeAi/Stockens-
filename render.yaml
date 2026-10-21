@@ -29,6 +29,9 @@ services:
       # Your email(s): full access without paying, and control of the BTC bot limits.
       - key: ADMIN_EMAILS
         sync: false
+      # Optional tester logins with free access (no owner powers): email:password, comma-separated.
+      - key: TEST_ACCOUNTS
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

@@ -95,6 +95,13 @@ export const config = {
     sessionSecret: env("SESSION_SECRET"),
     // Comma-separated emails that get full access without paying (you, the owner).
     adminEmails: env("ADMIN_EMAILS").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean),
+    // Tester logins, "email:password" comma-separated. Created on start-up with free access
+    // (no owner powers). The password only applies when the account is first created.
+    testAccounts: env("TEST_ACCOUNTS")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.includes(":"))
+      .map((s) => ({ email: s.slice(0, s.indexOf(":")).trim().toLowerCase(), password: s.slice(s.indexOf(":") + 1) })),
   },
   // Public address of the app, used in emailed links. Render sets RENDER_EXTERNAL_URL itself.
   publicUrl: env("PUBLIC_URL", env("RENDER_EXTERNAL_URL")).replace(/\/$/, ""),

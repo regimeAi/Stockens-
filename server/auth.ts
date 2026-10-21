@@ -68,7 +68,24 @@ function readCookie(header: string | undefined): string | undefined {
 }
 
 export const isAdmin = (a?: Account) => authMode() === "open" || (!!a && config.auth.adminEmails.includes(a.email));
-export const hasAccess = (a?: Account) => authMode() === "open" || (!!a && (isAdmin(a) || (authMode() === "paid" && a.paid)));
+export const isTester = (a?: Account) => !!a && config.auth.testAccounts.some((t) => t.email === a.email);
+export const hasAccess = (a?: Account) => authMode() === "open" || (!!a && (isAdmin(a) || isTester(a) || (authMode() === "paid" && a.paid)));
+
+// Create the TEST_ACCOUNTS logins that don't exist yet. Existing ones keep their password.
+export function seedTestAccounts() {
+  if (authMode() === "open") return;
+  for (const t of config.auth.testAccounts) {
+    if (!EMAIL.test(t.email) || t.password.length < 8) {
+      console.warn(`TEST_ACCOUNTS: skipping ${t.email || "(blank)"}: needs a valid email and a password of 8+ characters`);
+      continue;
+    }
+    if (store.accountByEmail(t.email)) continue;
+    const a: Account = { id: makeId("u_"), email: t.email, ...hashPassword(t.password), createdAt: Date.now(), paid: false };
+    store.saveAccount(a);
+    store.user(a.id);
+    console.log(`Test account ready: ${t.email}`);
+  }
+}
 
 // The signed-in account for a request (the local user in open mode).
 export function accountFor(req: IncomingMessage): Account | undefined {
