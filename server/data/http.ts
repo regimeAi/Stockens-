@@ -10,6 +10,7 @@ const MIN_GAP_MS: Record<string, number> = {
   "query2.finance.yahoo.com": 400,
   "feeds.finance.yahoo.com": 1200,
   "finviz.com": 4000,
+  "financialdata.net": 250,
 };
 
 const nextSlot = new Map<string, number>();

@@ -17,6 +17,9 @@ import { accountFor, authMode, authRoutes, hasAccess, requireAccess, stripeWebho
 import { toSignal } from "./engine/signals.ts";
 import { DEFAULT_TEAM_SETTINGS, newTeamState, nyClock, teamStats, type TeamSettings } from "./team/team.ts";
 
+// A failed network call somewhere in the background agents must never take the server down.
+process.on("unhandledRejection", (e) => console.error("[server] unhandled rejection:", e));
+
 const app = express();
 // Behind a hosting proxy (Render, Fly, etc.) so req.secure / req.ip reflect the real client.
 app.set("trust proxy", 1);
