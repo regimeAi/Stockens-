@@ -51,6 +51,8 @@ export const config = {
   yahooHistory: bool("YAHOO_HISTORY", true),
   // Licensed market data (recommended for a paid app): one key for prices, history and news.
   polygon: { apiKey: env("POLYGON_API_KEY"), base: env("POLYGON_BASE", "https://api.polygon.io") },
+  // FinancialData.net: prices, fundamentals, earnings, analyst targets and news (by plan).
+  financialData: { apiKey: env("FINANCIALDATA_API_KEY"), base: env("FINANCIALDATA_BASE", "https://financialdata.net/api/v1") },
   // SEC EDGAR asks every client to identify itself with a contact email.
   secUserAgent: env("SEC_USER_AGENT", `Stockens research ${env("ADMIN_EMAILS").split(",")[0] || "contact@example.com"}`),
   // Market-wide news feeds (RSS/Atom) read by the macro desk. Comma-separated.

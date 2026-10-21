@@ -182,6 +182,17 @@ Companies outside the S&P list get their SEC ID from SEC's official ticker direc
 | Filings | **SEC EDGAR** (official, public domain): 8-K items decoded (earnings, executive changes, impairments, bankruptcy…), 10-Q/10-K, Form 4, 13D | same |
 | Market-wide news | Federal Reserve, MarketWatch, CNBC and SEC press feeds, with company names routed to tickers | |
 
+**FinancialData.net** (`FINANCIALDATA_API_KEY`, `server/data/financialdata.ts`) is used first
+whenever it's set, for whatever your plan includes. The app works out the plan by itself: an
+endpoint that answers "not on your plan" is skipped from then on, and the Yahoo/Polygon path covers
+that piece. *Me → Data & agent* shows which parts are in use.
+
+| Plan | What Stockens takes from it |
+|---|---|
+| Free | 2 years of daily stock history |
+| Standard | ETF and crypto history, P/E and forward P/E, dividend yield, last earnings surprise |
+| Premium | live quotes for every covered name in one call per asset class, analyst targets (a site score), market news routed to tickers every 5 minutes, and a 14-day earnings calendar that feeds the team's earnings rule |
+
 Nobody can legally pull a raw feed straight from the NYSE or Nasdaq without an exchange data
 licence. Licensed vendors such as Polygon resell that consolidated feed. **If you sell the app,
 use a provider whose plan allows displaying data to your users.**

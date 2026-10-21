@@ -6,6 +6,7 @@ import { MarketSimulator } from "../data/simulator.ts";
 import { FinvizSource, HistorySource, JsonSiteSource, PolygonSource } from "../data/sources.ts";
 import { type DeskBrief, MacroDesk, SectorDesk } from "./desks.ts";
 import { secHealth } from "../data/news.ts";
+import { FinancialDataSource } from "../data/financialdata.ts";
 import { DEFAULT_TEAM_SETTINGS, TradingTeam, newTeamState } from "../team/team.ts";
 import { type MarketContext, computeFeatures } from "../engine/features.ts";
 import { type SymbolData, type TrainedModel, forecast, trainModels } from "../engine/ensemble.ts";
@@ -31,6 +32,7 @@ export class Agent extends EventEmitter {
   invo = new JsonSiteSource("invo", "InvoApp", "https://app.invoapp.com", config.invo);
   history = new HistorySource();
   polygon = new PolygonSource();
+  fd = new FinancialDataSource();
   desks: SectorDesk[] = [];
   macro: MacroDesk;
   historyLoaded = 0;
@@ -81,6 +83,7 @@ export class Agent extends EventEmitter {
       simStatus(this.invo.status),
       simStatus(this.history.status),
       this.polygon.enabled() ? this.polygon.status : { ...this.polygon.status, status: "disabled" as const },
+      this.fd.status,
       {
         id: "sec",
         name: "SEC EDGAR filings",
@@ -127,17 +130,23 @@ export class Agent extends EventEmitter {
     this.status = "running";
     await this.cycle();
     this.timer = setInterval(() => void this.cycle(), config.agentIntervalMs);
-    void this.loadHistory().then((n) => {
-      if (n > 0) {
-        this.refreshContext();
-        this.retrain();
-      }
-    });
+    void this.loadHistory()
+      .then((n) => {
+        if (n > 0) {
+          this.refreshContext();
+          this.retrain();
+        }
+      })
+      .catch((e) => console.error("[agent] history load failed:", e));
     // Desks tick on staggered timers; the shared per-host limiter keeps the total polite.
     this.desks.forEach((d, i) => setTimeout(() => setInterval(() => void d.tick(), 6000), i * 450));
     const sweepMacro = () => void this.macro.sweep().catch(() => (this.macro.status = "error"));
     setTimeout(sweepMacro, 3000);
     setInterval(sweepMacro, 10 * 60_000);
+    if (this.fd.enabled()) {
+      setTimeout(() => void this.sweepFinancialData(true), 5000);
+      setInterval(() => void this.sweepFinancialData(false), 5 * 60_000);
+    }
     setInterval(() => this.retrain(), 6 * 3600_000);
     setTimeout(() => this.computeRuleStats(), 2000);
     this.scheduleReview();
@@ -147,16 +156,19 @@ export class Agent extends EventEmitter {
     clearInterval(this.timer);
   }
 
-  // Real daily history for every symbol: Polygon if configured, else Yahoo. Returns how many loaded.
+  // Real daily history for every symbol: FinancialData.net, then Polygon, then Yahoo. Returns how many loaded.
   private async loadHistory(): Promise<number> {
-    if (!this.history.enabled() && !this.polygon.enabled()) return 0;
+    if (!this.history.enabled() && !this.polygon.enabled() && !this.fd.enabled()) return 0;
     const queue = [...UNIVERSE];
     let failsInARow = 0;
     await Promise.all(
       Array.from({ length: 3 }, async () => {
         for (let inst = queue.shift(); inst; inst = queue.shift()) {
           const crypto = inst.assetClass === "crypto";
-          const bars = (!crypto && (await this.polygon.bars(inst.symbol))) || (await this.history.bars(inst.symbol, crypto));
+          const bars =
+            (await this.fd.bars(inst.symbol, inst.assetClass)) ||
+            (!crypto && (await this.polygon.bars(inst.symbol))) ||
+            (await this.history.bars(inst.symbol, crypto));
           if (bars) {
             this.data.set(inst.symbol, { ...this.data.get(inst.symbol)!, bars, live: true });
             this.historyLoaded++;
@@ -170,10 +182,12 @@ export class Agent extends EventEmitter {
     return this.historyLoaded;
   }
 
-  // Live prices: one full-market snapshot with Polygon, otherwise rotating Yahoo batches.
+  // Live prices: FinancialData.net quotes (Premium) or one Polygon snapshot, otherwise rotating Yahoo batches.
   private async refreshPrices() {
-    let prices = new Map<string, number>();
-    if (this.polygon.enabled()) prices = await this.polygon.allPrices();
+    let prices = this.fd.has("stock-quotes") ? await this.fd.quotes(UNIVERSE.map((i) => ({ symbol: i.symbol, kind: i.assetClass }))) : new Map<string, number>();
+    if (prices.size) {
+      /* covered */
+    } else if (this.polygon.enabled()) prices = await this.polygon.allPrices();
     else if (this.history.enabled()) {
       for (let k = 0; k < 2; k++) {
         const batch = UNIVERSE.slice(this.quoteCursor, this.quoteCursor + 20);
@@ -194,6 +208,30 @@ export class Agent extends EventEmitter {
         b.h = Math.max(b.h, p);
         b.l = Math.min(b.l, p);
       }
+    }
+  }
+
+  // FinancialData.net market news every few minutes, earnings calendar a few times a day.
+  private fdCalendarAt = 0;
+  private async sweepFinancialData(first: boolean) {
+    try {
+      const known = new Set(UNIVERSE.map((i) => i.symbol));
+      const fresh = await this.fd.latestNews(known, first ? 3 : 2);
+      const bySym = new Map<string, NewsItem[]>();
+      for (const n of fresh) bySym.set(n.symbol, [...(bySym.get(n.symbol) ?? []), n]);
+      for (const [sym, items] of bySym) this.mergeNews(sym, items);
+      if (!first)
+        for (const n of fresh.filter((x) => Math.abs(x.sentiment) >= 0.5).slice(0, 3))
+          this.push({ kind: "news", symbol: n.symbol, title: `${n.symbol} · ${n.sentiment > 0 ? "positive" : "negative"} news`, body: n.headline });
+      if (Date.now() - this.fdCalendarAt > 6 * 3600_000 && this.fd.has("earnings-calendar")) {
+        this.fdCalendarAt = Date.now();
+        for (const [sym, t] of await this.fd.earningsCalendar(14)) {
+          const d = this.data.get(sym);
+          if (d) d.fundamentals = { ...d.fundamentals, nextEarnings: t };
+        }
+      }
+    } catch (e) {
+      console.error("[agent] FinancialData.net sweep failed:", e);
     }
   }
 
@@ -273,8 +311,8 @@ export class Agent extends EventEmitter {
       batch.map(async (inst) => {
         const scores: { source: string; score: number }[] = [];
         const extraNews: NewsItem[] = [];
-        for (const src of [this.finviz, this.mesarri, this.invo]) {
-          const snap = await src.snapshot(inst.symbol);
+        for (const src of [this.fd, this.finviz, this.mesarri, this.invo]) {
+          const snap = await src.snapshot(inst.symbol, this.data.get(inst.symbol)?.bars.at(-1)?.c);
           if (!snap) continue;
           if (snap.score !== undefined) scores.push({ source: src.status.name, score: snap.score });
           if (snap.news) extraNews.push(...snap.news);

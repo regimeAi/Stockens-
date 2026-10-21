@@ -18,6 +18,10 @@ services:
       # the free sources (Yahoo prices, Yahoo/SEC/Fed news).
       - key: POLYGON_API_KEY
         sync: false
+      # Optional: FinancialData.net key (history, quotes, fundamentals, earnings, news,
+      # depending on your plan). Paste it in Render's Environment tab, never in the code.
+      - key: FINANCIALDATA_API_KEY
+        sync: false
       # Postgres connection string (e.g. a free Neon database). Required: Render's free
       # plan has no disk, so without it accounts and purchases vanish on every restart.
       - key: DATABASE_URL
