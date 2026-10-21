@@ -13,7 +13,7 @@ import { SCENARIOS, portfolioView, runScenario, sizePosition, stops } from "./en
 import { atr, uid } from "./engine/indicators.ts";
 import { initPush, sendPush, vapidPublicKey } from "./push.ts";
 import type { AlertRule, Anomaly, SignalCard, StrategyConfig, Watchlist } from "./types.ts";
-import { accountFor, authMode, authRoutes, hasAccess, requireAccess, stripeWebhook } from "./auth.ts";
+import { accountFor, authMode, seedTestAccounts, authRoutes, hasAccess, requireAccess, stripeWebhook } from "./auth.ts";
 import { toSignal } from "./engine/signals.ts";
 import { DEFAULT_TEAM_SETTINGS, newTeamState, nyClock, teamStats, type TeamSettings } from "./team/team.ts";
 
@@ -357,6 +357,7 @@ try {
   process.exit(1);
 }
 initPush();
+seedTestAccounts();
 const mode = authMode();
 if (mode === "open") console.warn("No STRIPE_SECRET_KEY or ADMIN_EMAILS: running in open single-user mode with no login. Don't host it online like this.");
 if (mode !== "open" && store.backend === "file") console.warn(`Accounts are stored in ${config.dataDir}. On hosts without a persistent disk set DATABASE_URL, or accounts and purchases are lost on restart.`);

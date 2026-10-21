@@ -33,6 +33,10 @@ its own profile, watchlists, alerts, positions and push notifications. Emails li
 `ADMIN_EMAILS` (you) get full access without paying and are the only accounts that can change
 the shared BTC paper bot's limits.
 
+Testers: set `TEST_ACCOUNTS` to `email:password` pairs (comma-separated). Those accounts are
+created on start-up with free access but no owner powers. The password only applies when the
+account is first created, so a tester can change it afterwards.
+
 | Mode | When | Behavior |
 |---|---|---|
 | Paid | `STRIPE_SECRET_KEY` set | Anyone can sign up; the app unlocks after the $1.99 purchase. |
